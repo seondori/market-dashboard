@@ -6,41 +6,15 @@ import pandas as pd
 # 1. 페이지 설정
 st.set_page_config(page_title="글로벌 마켓 워치", layout="wide", page_icon="⚡")
 
-# 2. 스타일 설정 (모바일 최적화 추가)
+# 2. 스타일 설정
 st.markdown("""
     <style>
-    /* 기본 카드 스타일 */
-    .metric-card { 
-        background-color: #1e1e1e; 
-        padding: 10px; /* 모바일에서 공간 확보를 위해 패딩 줄임 */
-        border-radius: 10px; 
-        border: 1px solid #333; 
-        margin-bottom: 8px; 
-    }
-    .metric-title { font-size: 12px; color: #aaa; margin-bottom: 2px; }
-    .metric-value { font-size: 20px; font-weight: bold; color: #fff; }
-    .metric-delta-up { color: #00e676; font-size: 12px; }
-    .metric-delta-down { color: #ff5252; font-size: 12px; }
-    .error-text { font-size: 10px; color: #ff5252; }
-    
-    /* 📱 모바일 전용 CSS 매직 (화면이 좁을 때만 작동) */
-    @media (max-width: 640px) {
-        /* 가로 정렬 컨테이너가 줄바꿈을 허용하도록 설정 */
-        div[data-testid="stHorizontalBlock"] {
-            flex-wrap: wrap !important;
-            gap: 10px !important; /* 카드 사이 간격 */
-        }
-        /* 각 컬럼(카드)을 강제로 50% 너비로 고정 */
-        div[data-testid="column"] {
-            flex: 0 0 calc(50% - 10px) !important;
-            min-width: calc(50% - 10px) !important;
-            max-width: calc(50% - 10px) !important;
-        }
-        /* 불필요한 여백 제거 */
-        div[data-testid="column"] > div {
-            width: 100% !important;
-        }
-    }
+    .metric-card { background-color: #1e1e1e; padding: 15px; border-radius: 10px; border: 1px solid #333; margin-bottom: 10px; }
+    .metric-title { font-size: 14px; color: #aaa; margin-bottom: 5px; }
+    .metric-value { font-size: 24px; font-weight: bold; color: #fff; }
+    .metric-delta-up { color: #00e676; font-size: 14px; }
+    .metric-delta-down { color: #ff5252; font-size: 14px; }
+    .error-text { font-size: 12px; color: #ff5252; }
     </style>
 """, unsafe_allow_html=True)
 
