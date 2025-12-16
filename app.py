@@ -134,9 +134,9 @@ def get_korea_bond_yield(naver_code, etf_ticker):
     except:
         pass
 
-    # 전략 4: ETF → 금리 역산 (최후의 보루)
+    # 전략 4: ETF 가격 그대로 표시 (금리 변환 포기)
     try:
-        df = yf.download(etf_ticker, period=p, interval=i, progress=False)
+        df = yf.download(etf_ticker, period="5d", interval="1d", progress=False)
         
         # MultiIndex 처리
         if isinstance(df.columns, pd.MultiIndex): 
@@ -156,28 +156,16 @@ def get_korea_bond_yield(naver_code, etf_ticker):
         
         latest = float(series.iloc[-1])
         prev = float(series.iloc[-2])
+        delta = latest - prev
+        pct = (delta / prev) * 100
         
-        # 🔥 ETF → 금리 추정
-        # 한국 국채 ETF: 114260.KS (3년), 148070.KS (10년)
-        is_3year = "114260" in etf_ticker
-        duration = 2.8 if is_3year else 8.0
-        base_yield = 2.8 if is_3year else 3.2  # 2024년 말 기준 대략값
-        
-        # ETF 수익률 계산
-        etf_return_pct = ((latest - prev) / prev) * 100
-        
-        # 금리 변화 추정: ETF 1% 하락 ≈ 금리 (1/duration)% 상승
-        yield_change_pct = -etf_return_pct / duration
-        
-        # 절대 금리 추정 (베이스라인 필요)
-        estimated_yield = base_yield + yield_change_pct
-        
+        # ETF는 가격으로 표시 (금리 아님)
         return {
-            "current": estimated_yield,
-            "delta": yield_change_pct / 100,
-            "delta_pct": yield_change_pct,
-            "source_type": "ETF추정",
-            "is_fallback": False,  # % 단위로 표시
+            "current": latest,
+            "delta": delta,
+            "delta_pct": pct,
+            "source_type": "ETF대체",
+            "is_fallback": True,  # 가격 단위
             "history": None
         }
     except Exception as e:
@@ -227,10 +215,15 @@ def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
             "FDR": ("#004d00", "#00ff00"),
             "BOK": ("#003d5c", "#00bfff"), 
             "Naver": ("#4d3800", "#ffa500"),
-            "ETF추정": ("#4d0000", "#ff6b6b")
+            "ETF대체": ("#4d0000", "#ff6b6b")
         }
         badge_bg, badge_fg = badge_colors.get(src_type, ("#333", "#ff9800"))
-        name += f" <span class='fallback-badge' style='background:{badge_bg}; color:{badge_fg};'>{src_type}</span>"
+        
+        # ETF 대체일 경우 단위 표시
+        if data.get('is_fallback'):
+            name += f" <span class='fallback-badge' style='background:{badge_bg}; color:{badge_fg};'>{src_type} (가격)</span>"
+        else:
+            name += f" <span class='fallback-badge' style='background:{badge_bg}; color:{badge_fg};'>{src_type}</span>"
         history = None
 
     # B. 일반 지표
@@ -265,8 +258,8 @@ def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
     delta_sign = "▲" if delta > 0 else "▼"
     delta_color = "metric-delta-up" if delta >= 0 else "metric-delta-down"
     
-    # 단위: 국채는 항상 % (is_fallback 제거)
-    unit = "%" if is_korea_bond or 'TNX' in ticker else ""
+    # 단위: 금리 소스일 때만 % (ETF 폴백 제외)
+    unit = "%" if (is_korea_bond and not data.get('is_fallback')) or 'TNX' in ticker else ""
     
     st.markdown(f"""
     <div class="metric-card">
