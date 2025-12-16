@@ -227,10 +227,10 @@ raw_data = get_yahoo_data(list(set(all_tickers_list)), p, i)
 # ==========================================
 # 📟 그리기 함수
 # ==========================================
-def draw_card(name, ticker, is_korea_bond=False, etf_code=None, period="1mo"):
+def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
     # A. 한국 국채
     if is_korea_bond:
-        data = get_korea_bond_yield(ticker, etf_code, period)
+        data = get_korea_bond_yield(ticker, etf_code)
         if not data:
             st.markdown(f"<div class='metric-card' style='border:1px solid #ff5252'><div class='metric-title'>{name}</div><div class='metric-value' style='color:#ff5252; font-size:16px'>로딩 실패</div></div>", unsafe_allow_html=True)
             return
@@ -343,8 +343,8 @@ else:
         col_kr, col_us = st.columns(2)
         with col_kr:
             st.markdown("##### 🇰🇷 한국 국채")
-            draw_card("한국 3년 국채", "IRr_GOV03Y", is_korea_bond=True, etf_code="114260.KS", period=p)
-            draw_card("한국 10년 국채", "IRr_GOV10Y", is_korea_bond=True, etf_code="148070.KS", period=p)
+            draw_card("한국 3년 국채", "IRr_GOV03Y", is_korea_bond=True, etf_code="114260.KS")
+            draw_card("한국 10년 국채", "IRr_GOV10Y", is_korea_bond=True, etf_code="148070.KS")
             
         with col_us:
             st.markdown("##### 🇺🇸 미국 국채")
