@@ -262,7 +262,20 @@ def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
 
     # C. 공통 렌더링
     color = '#ff5252' if delta >= 0 else '#00e676'
+    delta_sign = "▲" if delta > 0 else "▼"
+    delta_color = "metric-delta-up" if delta >= 0 else "metric-delta-down"
     
+    # 단위: 국채는 항상 % (is_fallback 제거)
+    unit = "%" if is_korea_bond or 'TNX' in ticker else ""
+    
+    st.markdown(f"""
+    <div class="metric-card">
+        <div class="metric-title">{name}</div>
+        <div class="metric-value">{val:,.2f}{unit}</div>
+        <div class="{delta_color}">{delta_sign} {abs(delta):.2f} ({pct:.2f}%)</div>
+    </div>""", unsafe_allow_html=True)
+    
+    # 차트는 히스토리가 있을 때만 표시
     if history is not None:
         y_min, y_max = history.min(), history.max()
         padding = (y_max - y_min) * 0.1 if y_max != y_min else 1.0
@@ -279,24 +292,6 @@ def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
             xaxis=dict(visible=False), yaxis=dict(visible=False, range=[y_min-padding, y_max+padding]),
             showlegend=False, hovermode="x"
         )
-    else:
-        fig = go.Figure()
-        fig.update_layout(height=0, margin=dict(l=0,r=0,t=0,b=0), xaxis=dict(visible=False), yaxis=dict(visible=False))
-
-    delta_sign = "▲" if delta > 0 else "▼"
-    delta_color = "metric-delta-up" if delta >= 0 else "metric-delta-down"
-    
-    # 단위: 국채는 항상 % (is_fallback 제거)
-    unit = "%" if is_korea_bond or 'TNX' in ticker else ""
-    
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-title">{name}</div>
-        <div class="metric-value">{val:,.2f}{unit}</div>
-        <div class="{delta_color}">{delta_sign} {abs(delta):.2f} ({pct:.2f}%)</div>
-    </div>""", unsafe_allow_html=True)
-    
-    if history is not None:
         st.plotly_chart(fig, use_container_width=True, config={'staticPlot': True})
 
 
