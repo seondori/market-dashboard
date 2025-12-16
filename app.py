@@ -215,15 +215,10 @@ def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
             "FDR": ("#004d00", "#00ff00"),
             "BOK": ("#003d5c", "#00bfff"), 
             "Naver": ("#4d3800", "#ffa500"),
-            "ETF대체": ("#4d0000", "#ff6b6b")
+            "ETF추정": ("#4d0000", "#ff6b6b")
         }
         badge_bg, badge_fg = badge_colors.get(src_type, ("#333", "#ff9800"))
-        
-        # ETF 대체일 경우 단위 표시
-        if data.get('is_fallback'):
-            name += f" <span class='fallback-badge' style='background:{badge_bg}; color:{badge_fg};'>{src_type} (가격)</span>"
-        else:
-            name += f" <span class='fallback-badge' style='background:{badge_bg}; color:{badge_fg};'>{src_type}</span>"
+        name += f" <span class='fallback-badge' style='background:{badge_bg}; color:{badge_fg};'>{src_type}</span>"
         history = None
 
     # B. 일반 지표
@@ -258,8 +253,8 @@ def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
     delta_sign = "▲" if delta > 0 else "▼"
     delta_color = "metric-delta-up" if delta >= 0 else "metric-delta-down"
     
-    # 단위: 금리 소스일 때만 % (ETF 폴백 제외)
-    unit = "%" if (is_korea_bond and not data.get('is_fallback')) or 'TNX' in ticker else ""
+    # 단위: 국채는 항상 % (is_fallback 제거)
+    unit = "%" if is_korea_bond or 'TNX' in ticker else ""
     
     st.markdown(f"""
     <div class="metric-card">
