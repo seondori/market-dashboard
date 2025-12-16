@@ -42,7 +42,6 @@ else: p, i = "1y", "1d"
 # ==========================================
 @st.cache_data(ttl=300) 
 def get_korea_bond_smart(code, etf_ticker):
-    # 1단계: 네이버 모바일 API 시도 (가볍고 차단 덜 됨)
     try:
         url = f"https://api.stock.naver.com/marketindex/match/{code}"
         headers = {'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1'}
@@ -50,34 +49,29 @@ def get_korea_bond_smart(code, etf_ticker):
         res = requests.get(url, headers=headers, timeout=3)
         data = res.json()
         
-        # 데이터 파싱
         value = float(data['closePrice'].replace(',', ''))
         change_val = float(data['compareToPreviousClosePrice'].replace(',', ''))
         pct = float(data['fluctuationRate'].replace(',', ''))
         
-        # 하락 반영 (API는 절대값만 주는 경우가 있음)
+        # 하락 반영
         if data['fluctuationRate'] and '-' in data['fluctuationRate']:
-             pass # 이미 음수면 패스
+             pass 
         elif change_val > 0 and value < (value + change_val): 
-             change_val = -change_val # 로직상 보정 (네이버 API 특성)
+             change_val = -change_val
 
-        # 네이버 API는 전일대비 부호를 따로 줌 ('+' or '-')
-        # 안전하게 계산: (오늘 - 어제)
-        
         return {
             "current": value,
             "delta": change_val,
             "delta_pct": pct,
             "is_fallback": False,
-            "history": None # API는 히스토리 안줌 -> 차트 없음
+            "history": None
         }
 
     except Exception:
-        # 2단계: 실패 시 ETF 데이터로 자동 전환 (무조건 성공함)
+        # ETF 백업
         try:
             stock = yf.Ticker(etf_ticker)
             df = stock.history(period=p, interval=i)
-            
             if df.empty: return None
             
             latest = df['Close'].iloc[-1]
@@ -89,26 +83,29 @@ def get_korea_bond_smart(code, etf_ticker):
                 "current": latest,
                 "delta": delta,
                 "delta_pct": pct,
-                "is_fallback": True, # 백업 모드 가동
+                "is_fallback": True,
                 "history": df['Close']
             }
         except:
             return None
 
 # ==========================================
-# 🚀 야후 데이터 (나머지 지표용)
+# 🚀 야후 데이터
 # ==========================================
 tickers = {
     "indices": [("🇰🇷 코스피", "^KS11"), ("🇺🇸 다우존스", "^DJI"), ("🇺🇸 S&P 500", "^GSPC"), ("🇺🇸 나스닥", "^IXIC")],
     "macro": [("🛢️ WTI 원유", "CL=F"), ("👑 금", "GC=F"), ("😱 VIX", "^VIX"), ("🏭 구리", "HG=F")],
-    "forex": [("🇰🇷/🇺🇸 원/달러", "KRW=X"), ("🇨🇳/🇺🇸 위안/달러", "CNY=X"), ("🇯🇵/🇰🇷 엔/원", "JPYKRW=X"), ("🌎 달러 인덱스", "DX-Y.NYB")],
+    "forex": [("🇰🇷 원/달러", "KRW=X"), ("🇨🇳 원/위안", "CALC_CNYKRW"), ("🇯🇵 원/엔 (100엔)", "JPYKRW=X"), ("🌎 달러 인덱스", "DX-Y.NYB")],
     "us_bonds": [("🇺🇸 미국 2년 금리", "ZT=F"), ("🇺🇸 미국 10년 금리", "^TNX")]
 }
 
 all_tickers_list = []
 for group in tickers.values():
     for name, ticker in group:
-        all_tickers_list.append(ticker)
+        if ticker != "CALC_CNYKRW":
+            all_tickers_list.append(ticker)
+# 위안화 계산을 위해 USD/CNY 추가
+all_tickers_list.append("CNY=X")
 
 @st.cache_data(ttl=60)
 def get_yahoo_data(ticker_list, period, interval):
@@ -117,36 +114,26 @@ def get_yahoo_data(ticker_list, period, interval):
     except:
         return None
 
-raw_data = get_yahoo_data(all_tickers_list, p, i)
+raw_data = get_yahoo_data(list(set(all_tickers_list)), p, i)
 
 # ==========================================
-# 📟 그리기 함수 (지능형)
+# 📟 그리기 함수
 # ==========================================
 def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
-    # A. 한국 국채 처리
+    # A. 한국 국채
     if is_korea_bond:
         data = get_korea_bond_smart(ticker, etf_code)
-        
         if not data:
             st.error(f"❌ {name}")
             return
-            
-        val = data['current']
-        delta = data['delta']
-        pct = data['delta_pct']
+        val, delta, pct, history = data['current'], data['delta'], data['delta_pct'], data['history']
         
-        # 백업 모드(ETF)일 때 처리
-        if data['is_fallback']:
-            name += " <span class='fallback-badge'>ETF대체</span>"
-            # ETF는 가격이 내리면(파란불) -> 금리 상승(나쁜거 아님)
-            # 하지만 직관성을 위해 그냥 가격 등락대로 표시
-            history = data['history']
-        else:
-            name += " <span class='fallback-badge' style='color:#00e676; background:#003300;'>Naver실시간</span>"
-            history = None # API는 차트 없음
+        if data['is_fallback']: name += " <span class='fallback-badge'>ETF대체</span>"
+        else: name += " <span class='fallback-badge' style='color:#00e676; background:#003300;'>Naver</span>"
 
-    # B. 일반 지표 처리
+    # B. 일반 지표
     else:
+        # [수정됨] 원/위안 계산 (KRW/USD 나누기 CNY/USD)
         if ticker == "CALC_CNYKRW":
             try:
                 s1 = raw_data["KRW=X"]["Close"]
@@ -162,11 +149,17 @@ def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
         
         val = float(series.iloc[-1])
         prev = float(series.iloc[-2])
+        
+        # [수정됨] 엔화 100엔 단위 변환
+        if "JPYKRW" in ticker:
+            val *= 100
+            prev *= 100
+            
         delta = val - prev
         pct = (delta / prev) * 100
         history = series
 
-    # C. 공통: 차트 및 카드 렌더링
+    # C. 공통 렌더링
     color = '#00e676' if delta >= 0 else '#ff5252'
     
     if history is not None:
@@ -185,16 +178,13 @@ def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
             showlegend=False, hovermode="x"
         )
     else:
-        # 차트 데이터 없을 때 (API 성공 시) - 빈 차트
         fig = go.Figure()
         fig.update_layout(height=0, margin=dict(l=0,r=0,t=0,b=0), xaxis=dict(visible=False), yaxis=dict(visible=False))
 
     delta_sign = "▲" if delta > 0 else "▼"
     delta_color = "metric-delta-up" if delta >= 0 else "metric-delta-down"
     
-    # 한국 국채 백업모드일 경우 단위 표시 변경
-    unit = "%" if is_korea_bond and not data.get('is_fallback') else ""
-    if 'TNX' in ticker: unit = "%"
+    unit = "%" if (is_korea_bond and not data.get('is_fallback')) or 'TNX' in ticker else ""
     
     st.markdown(f"""
     <div class="metric-card">
@@ -210,7 +200,7 @@ def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
 # ==========================================
 # 🖥️ 메인 화면
 # ==========================================
-st.title(f"📊 Market Dashboard _ by seondori ({period_option})")
+st.title(f"📊 Market Dashboard by_seondori ({period_option})")
 
 if raw_data is None:
     st.error("서버 연결 확인 중...")
@@ -234,7 +224,6 @@ else:
         col_kr, col_us = st.columns(2)
         with col_kr:
             st.markdown("##### 🇰🇷 한국 국채 (Auto)")
-            # 네이버 코드 + ETF 코드(백업용) 함께 전달
             draw_card("한국 3년 금리", "IRr_GOV03Y", is_korea_bond=True, etf_code="114260.KS")
             draw_card("한국 10년 금리", "IRr_GOV10Y", is_korea_bond=True, etf_code="148070.KS")
             
@@ -246,6 +235,8 @@ else:
     with tab3:
         c1, c2, c3, c4 = st.columns(4)
         with c1: draw_card("🇰🇷/🇺🇸 원/달러", "KRW=X")
-        with c2: draw_card("🇨🇳/🇰🇷 위안/원", "CALC_CNYKRW")
-        with c3: draw_card("🇯🇵/🇰🇷 엔/원", "JPYKRW=X")
+        # [수정] 원/위안으로 표기 변경
+        with c2: draw_card("🇨🇳/🇰🇷 원/위안", "CALC_CNYKRW")
+        # [수정] 원/엔 (100엔 기준)으로 표기 및 계산 적용
+        with c3: draw_card("🇯🇵/🇰🇷 원/엔 (100엔)", "JPYKRW=X")
         with c4: draw_card("🌎 달러 인덱스", "DX-Y.NYB")
