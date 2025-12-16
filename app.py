@@ -2,16 +2,18 @@ import streamlit as st
 import yfinance as yf
 import plotly.graph_objects as go
 import pandas as pd
-import cloudscraper
-import FinanceDataReader as fdr
-from bs4 import BeautifulSoup
-from datetime import datetime, timedelta
 import requests
 
 # 1. 페이지 설정
 st.set_page_config(page_title="Seondori Market Dashboard", layout="wide", page_icon="📊")
 
-# 2. 스타일 설정 (상승=빨강, 하락=초록)
+# ==========================================
+# 🔑 [중요] 한국은행 API 키 입력란
+# ==========================================
+# https://ecos.bok.or.kr/ 에서 발급받은 키를 아래 따옴표 안에 넣으세요
+BOK_API_KEY = "여기에_발급받은_키를_넣으세요" 
+
+# 2. 스타일 설정
 st.markdown("""
     <style>
     .metric-card { 
@@ -23,9 +25,9 @@ st.markdown("""
     }
     .metric-title { font-size: 13px; color: #aaa; margin-bottom: 5px; }
     .metric-value { font-size: 24px; font-weight: bold; color: #fff; }
-    .metric-delta-up { color: #ff5252; font-size: 13px; }   
-    .metric-delta-down { color: #00e676; font-size: 13px; } 
-    .fallback-badge { font-size: 10px; background-color: #333; padding: 2px 6px; border-radius: 4px; color: #ff9800; margin-left: 5px; }
+    .metric-delta-up { color: #ff5252; font-size: 13px; }
+    .metric-delta-down { color: #00e676; font-size: 13px; }
+    .source-badge { font-size: 10px; background-color: #333; padding: 2px 6px; border-radius: 4px; color: #888; margin-left: 5px; }
     
     @media (max-width: 640px) {
         div[data-testid="column"] {
@@ -49,130 +51,55 @@ elif "6개월" in period_option: p, i = "6mo", "1d"
 else: p, i = "1y", "1d"
 
 # ==========================================
-# 🚀 핵심 기술: 국채 금리 4중 확보 전략 (개선)
+# 🚀 한국은행(ECOS) API 통신 함수
 # ==========================================
-@st.cache_data(ttl=600) 
-def get_korea_bond_yield(naver_code, etf_ticker):
-    # 전략 1: FinanceDataReader (Investing.com 소스)
+@st.cache_data(ttl=3600) # 1시간마다 갱신 (국채는 하루 1번 발표라 자주 할 필요 없음)
+def get_bok_yield(stat_code, item_code, etf_ticker):
+    # 1. 한국은행 API 시도
     try:
-        fdr_symbol = "KR3YT=RR" if "03Y" in naver_code else "KR10YT=RR"
-        start_date = (datetime.now() - timedelta(days=10)).strftime('%Y-%m-%d')
-        df = fdr.DataReader(fdr_symbol, start=start_date)
+        # ECOS API URL (최근 5일치 요청)
+        url = f"http://ecos.bok.or.kr/api/StatisticSearch/{BOK_API_KEY}/json/kr/1/5/{stat_code}/D/20230101/20301231/{item_code}/"
+        res = requests.get(url, timeout=3)
+        data = res.json()
         
-        if df is None or df.empty: raise Exception("Empty Data")
+        rows = data['StatisticSearch']['row']
+        # 날짜순 정렬 보장 및 최근값 추출
+        df_bok = pd.DataFrame(rows)
+        df_bok['TIME'] = pd.to_datetime(df_bok['TIME'])
+        df_bok = df_bok.sort_values('TIME')
         
-        latest = float(df['Close'].iloc[-1])
-        prev = float(df['Close'].iloc[-2])
+        latest = float(df_bok.iloc[-1]['DATA_VALUE'])
+        prev = float(df_bok.iloc[-2]['DATA_VALUE'])
+        
         delta = latest - prev
-        pct = (delta / prev) * 100
+        pct = (delta / prev) * 100 if prev != 0 else 0
         
         return {
             "current": latest, "delta": delta, "delta_pct": pct,
-            "source_type": "FDR", "is_fallback": False, "history": None
+            "source": "한국은행(%)", "history": None # ECOS는 차트용으론 데이터가 적음
         }
     except:
-        pass
-
-    # 전략 2: 한국은행 API (공식 데이터)
-    try:
-        # 한국은행 경제통계시스템 (인증키 불필요한 공개 데이터)
-        stat_code = "817Y002" if "03Y" in naver_code else "817Y004"  # 국고채 3년/10년
-        url = f"https://ecos.bok.or.kr/api/StatisticSearch/sample/json/kr/1/10/{stat_code}/D/"
-        
-        # 최근 날짜 2개 요청
-        end_date = datetime.now().strftime('%Y%m%d')
-        start_date = (datetime.now() - timedelta(days=7)).strftime('%Y%m%d')
-        url += f"{start_date}/{end_date}/"
-        
-        response = requests.get(url, timeout=5)
-        data = response.json()
-        
-        if 'StatisticSearch' in data and 'row' in data['StatisticSearch']:
-            rows = data['StatisticSearch']['row']
-            if len(rows) >= 2:
-                latest = float(rows[-1]['DATA_VALUE'])
-                prev = float(rows[-2]['DATA_VALUE'])
-                delta = latest - prev
-                pct = (delta / prev) * 100
-                
-                return {
-                    "current": latest, "delta": delta, "delta_pct": pct,
-                    "source_type": "BOK", "is_fallback": False, "history": None
-                }
-    except:
-        pass
-
-    # 전략 3: CloudScraper (네이버 크롤링)
-    try:
-        url = f"https://finance.naver.com/marketindex/interestDetail.naver?marketindexCd={naver_code}"
-        scraper = cloudscraper.create_scraper(
-            browser={'browser': 'chrome', 'platform': 'windows', 'mobile': False}
-        )
-        res = scraper.get(url, timeout=5, headers={
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7'
-        })
-        soup = BeautifulSoup(res.text, 'html.parser')
-        
-        value_str = soup.select_one('div.head_info > span.value').text
-        value = float(value_str.replace(',', ''))
-        
-        change_str = soup.select_one('div.head_info > span.change').text
-        change_val = float(change_str.replace(',', '').strip())
-        
-        direction = soup.select_one('div.head_info > span.blind').text
-        if "하락" in direction: change_val = -change_val
-        elif "보합" in direction: change_val = 0.0
+        # 2. 실패 시 ETF 백업 (가격)
+        try:
+            df = yf.download(etf_ticker, period=p, interval=i, progress=False)
+            if isinstance(df.columns, pd.MultiIndex): df = df.xs('Close', level=0, axis=1)
+            series = df[etf_ticker] if etf_ticker in df.columns else df.iloc[:,0]
+            series = series.dropna()
             
-        prev = value - change_val
-        pct = (change_val / prev) * 100 if prev != 0 else 0
-        
-        return {
-            "current": value, "delta": change_val, "delta_pct": pct,
-            "source_type": "Naver", "is_fallback": False, "history": None
-        }
-    except:
-        pass
-
-    # 전략 4: ETF 가격 그대로 표시 (금리 변환 포기)
-    try:
-        df = yf.download(etf_ticker, period="5d", interval="1d", progress=False)
-        
-        # MultiIndex 처리
-        if isinstance(df.columns, pd.MultiIndex): 
-            try:
-                if etf_ticker in df.columns.get_level_values(1):
-                    df = df.xs(etf_ticker, level=1, axis=1)
-                else:
-                    df = df.xs('Close', level=0, axis=1)
-            except:
-                df = df.iloc[:, 0].to_frame()
-
-        if 'Close' in df.columns: series = df['Close']
-        else: series = df.iloc[:, 0]
+            latest = float(series.iloc[-1])
+            prev = float(series.iloc[-2])
+            delta = latest - prev
+            pct = (delta / prev) * 100
             
-        series = series.dropna()
-        if series.empty: return None
-        
-        latest = float(series.iloc[-1])
-        prev = float(series.iloc[-2])
-        delta = latest - prev
-        pct = (delta / prev) * 100
-        
-        # ETF는 가격으로 표시 (금리 아님)
-        return {
-            "current": latest,
-            "delta": delta,
-            "delta_pct": pct,
-            "source_type": "ETF대체",
-            "is_fallback": True,  # 가격 단위
-            "history": None
-        }
-    except Exception as e:
-        return None
+            return {
+                "current": latest, "delta": delta, "delta_pct": pct,
+                "source": "ETF대체", "history": series
+            }
+        except:
+            return None
 
 # ==========================================
-# 🚀 야후 데이터 (나머지)
+# 🚀 야후 데이터
 # ==========================================
 tickers = {
     "indices": [("🇰🇷 코스피", "^KS11"), ("🇺🇸 다우존스", "^DJI"), ("🇺🇸 S&P 500", "^GSPC"), ("🇺🇸 나스닥", "^IXIC")],
@@ -199,27 +126,46 @@ raw_data = get_yahoo_data(list(set(all_tickers_list)), p, i)
 # ==========================================
 # 📟 그리기 함수
 # ==========================================
-def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
-    # A. 한국 국채
+def draw_card(name, ticker, is_korea_bond=False, bok_codes=None, etf_code=None):
+    # A. 한국 국채 (한국은행 or ETF)
     if is_korea_bond:
-        data = get_korea_bond_yield(ticker, etf_code)
+        # BOK_API_KEY가 없으면 바로 ETF로 감
+        if "여기에" in BOK_API_KEY:
+            data = None # 키 미입력 시 강제 실패 처리 -> ETF로 넘어감
+        else:
+            data = get_bok_yield(bok_codes[0], bok_codes[1], etf_code)
+            
+        # 1차 실패 시 ETF로 재시도 (함수 내부 로직이 아닌 외부 호출로 처리)
+        if not data: 
+             # 여기서는 ETF 함수를 따로 호출하거나 해야하는데, 
+             # 편의상 get_bok_yield 함수 내부의 2단계 ETF 백업을 사용.
+             # 단, 키가 없으면 바로 ETF 로직만 타도록 수정된 함수 필요하나 
+             # 일단 위 함수가 2단계를 포함하므로 키가 틀리면 '실패' 후 ETF로 감
+             pass
+
+        # 만약 함수 내부 ETF도 실패했다면? -> 로딩 실패
         if not data:
-            st.markdown(f"<div class='metric-card' style='border:1px solid #ff5252'><div class='metric-title'>{name}</div><div class='metric-value' style='color:#ff5252; font-size:16px'>로딩 실패</div></div>", unsafe_allow_html=True)
-            return
+             # ETF 전용으로 한 번 더 시도 (키 미입력 유저용)
+             try:
+                df = yf.download(etf_code, period=p, interval=i, progress=False)
+                if isinstance(df.columns, pd.MultiIndex): df = df.xs('Close', level=0, axis=1)
+                series = df.iloc[:,0].dropna()
+                latest = float(series.iloc[-1])
+                prev = float(series.iloc[-2])
+                data = {
+                    "current": latest, "delta": latest-prev, "delta_pct": 0,
+                    "source": "ETF대체", "history": series
+                }
+             except:
+                st.markdown(f"<div class='metric-card' style='border:1px solid #ff5252'><div class='metric-title'>{name}</div><div class='metric-value' style='color:#ff5252; font-size:16px'>로딩 실패</div></div>", unsafe_allow_html=True)
+                return
+
+        val, delta, pct, history = data['current'], data['delta'], data['delta_pct'], data['history']
+        src = data['source']
         
-        val, delta, pct = data['current'], data['delta'], data['delta_pct']
-        src_type = data['source_type']
-        
-        # 배지 표시
-        badge_colors = {
-            "FDR": ("#004d00", "#00ff00"),
-            "BOK": ("#003d5c", "#00bfff"), 
-            "Naver": ("#4d3800", "#ffa500"),
-            "ETF추정": ("#4d0000", "#ff6b6b")
-        }
-        badge_bg, badge_fg = badge_colors.get(src_type, ("#333", "#ff9800"))
-        name += f" <span class='fallback-badge' style='background:{badge_bg}; color:{badge_fg};'>{src_type}</span>"
-        history = None
+        # 배지 색상
+        badge_style = "color:#ff9800; background:#333;" if "ETF" in src else "color:#00e676; background:#003300;"
+        name += f" <span class='source-badge' style='{badge_style}'>{src}</span>"
 
     # B. 일반 지표
     else:
@@ -248,22 +194,9 @@ def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
         except:
             return
 
-    # C. 공통 렌더링
+    # C. 화면 렌더링
     color = '#ff5252' if delta >= 0 else '#00e676'
-    delta_sign = "▲" if delta > 0 else "▼"
-    delta_color = "metric-delta-up" if delta >= 0 else "metric-delta-down"
     
-    # 단위: 국채는 항상 % (is_fallback 제거)
-    unit = "%" if is_korea_bond or 'TNX' in ticker else ""
-    
-    st.markdown(f"""
-    <div class="metric-card">
-        <div class="metric-title">{name}</div>
-        <div class="metric-value">{val:,.2f}{unit}</div>
-        <div class="{delta_color}">{delta_sign} {abs(delta):.2f} ({pct:.2f}%)</div>
-    </div>""", unsafe_allow_html=True)
-    
-    # 차트는 히스토리가 있을 때만 표시
     if history is not None:
         y_min, y_max = history.min(), history.max()
         padding = (y_max - y_min) * 0.1 if y_max != y_min else 1.0
@@ -280,6 +213,23 @@ def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
             xaxis=dict(visible=False), yaxis=dict(visible=False, range=[y_min-padding, y_max+padding]),
             showlegend=False, hovermode="x"
         )
+    else:
+        fig = go.Figure()
+        fig.update_layout(height=0, margin=dict(l=0,r=0,t=0,b=0), xaxis=dict(visible=False), yaxis=dict(visible=False))
+
+    delta_sign = "▲" if delta > 0 else "▼"
+    delta_color = "metric-delta-up" if delta >= 0 else "metric-delta-down"
+    
+    unit = "%" if (is_korea_bond and "ETF" not in src) or 'TNX' in ticker else ""
+    
+    st.markdown(f"""
+    <div class="metric-card">
+        <div class="metric-title">{name}</div>
+        <div class="metric-value">{val:,.2f}{unit}</div>
+        <div class="{delta_color}">{delta_sign} {abs(delta):.2f} ({pct:.2f}%)</div>
+    </div>""", unsafe_allow_html=True)
+    
+    if history is not None:
         st.plotly_chart(fig, use_container_width=True, config={'staticPlot': True})
 
 
@@ -289,7 +239,7 @@ def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
 st.title(f"📊 Seondori Market Dashboard ({period_option})")
 
 if raw_data is None:
-    st.error("데이터 서버 연결 중...")
+    st.error("데이터 로딩 중...")
 else:
     tab1, tab2, tab3 = st.tabs(["📈 주가지수 & 매크로", "💰 국채 금리", "💱 환율"])
     
@@ -310,8 +260,12 @@ else:
         col_kr, col_us = st.columns(2)
         with col_kr:
             st.markdown("##### 🇰🇷 한국 국채")
-            draw_card("한국 3년 국채", "IRr_GOV03Y", is_korea_bond=True, etf_code="114260.KS")
-            draw_card("한국 10년 국채", "IRr_GOV10Y", is_korea_bond=True, etf_code="148070.KS")
+            if "여기에" in BOK_API_KEY:
+                st.warning("⚠️ 한국은행 API 키를 입력하면 '진짜 금리(%)'가 나옵니다. (지금은 ETF 가격 표시)")
+            
+            # 817Y002: 시장금리(일별) / 010200000: 국고채(3년) / 010210000: 국고채(10년)
+            draw_card("한국 3년 국채", "KR3", is_korea_bond=True, bok_codes=["817Y002", "010200000"], etf_code="114260.KS")
+            draw_card("한국 10년 국채", "KR10", is_korea_bond=True, bok_codes=["817Y002", "010210000"], etf_code="148070.KS")
             
         with col_us:
             st.markdown("##### 🇺🇸 미국 국채")
