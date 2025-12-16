@@ -30,7 +30,7 @@ with st.sidebar:
     st.header("⚙️ 설정")
     if st.button("🔄 새로고침"):
         st.cache_data.clear()
-    period_option = st.selectbox("차트 기간", ("5일", "1개월", "6개월", "1년"), index=0)
+    period_option = st.selectbox("차트 기간", ("5일 (단기)", "1개월", "6개월", "1년"), index=0)
 
 if "5일" in period_option: p, i = "5d", "30m"
 elif "1개월" in period_option: p, i = "1mo", "1d"
@@ -200,7 +200,7 @@ def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
 # ==========================================
 # 🖥️ 메인 화면
 # ==========================================
-st.title(f"📊 Market Dashboard by_seondori ({period_option})")
+st.title(f"📊 Market Dashboard ({period_option})")
 
 if raw_data is None:
     st.error("서버 연결 확인 중...")
