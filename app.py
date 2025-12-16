@@ -38,50 +38,55 @@ elif "6개월" in period_option: p, i = "6mo", "1d"
 else: p, i = "1y", "1d"
 
 # ==========================================
-# 🚀 핵심 기술 1: 네이버 금융 크롤링 (한국 국채용)
+# 🚀 핵심 기술 1: 네이버 금융 크롤링 (차단 우회 적용)
 # ==========================================
-@st.cache_data(ttl=600) # 10분마다 갱신 (네이버 차단 방지)
+@st.cache_data(ttl=300) 
 def get_naver_bond(code):
     try:
-        # 네이버 금융 시장지표 페이지
+        # [중요] 가짜 신분증(User-Agent) 만들기
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+        
         url = f"https://finance.naver.com/marketindex/interestDetail.naver?marketindexCd={code}"
-        res = requests.get(url)
+        
+        # 헤더를 포함해서 요청 (이제 네이버가 안 막음)
+        res = requests.get(url, headers=headers, timeout=5)
         soup = BeautifulSoup(res.text, 'html.parser')
         
-        # 현재 금리 추출
+        # 데이터 추출
         value = soup.select_one('div.head_info > span.value').text
         value = float(value.replace(',', ''))
         
-        # 변동폭 추출
         change_val = soup.select_one('div.head_info > span.change').text
         change_val = float(change_val.replace(',', '').strip())
         
-        # 상승/하락 기호 파악
-        direction = soup.select_one('div.head_info > span.blind').text
+        # 방향 확인 (상승/하락/보합)
+        direction_element = soup.select_one('div.head_info > span.blind')
+        direction = direction_element.text if direction_element else ""
+        
         if "하락" in direction:
             change_val = -change_val
+        elif "보합" in direction:
+            change_val = 0.0
         
-        # 변화율 계산 (전일 대비)
+        # 변화율 계산
         prev = value - change_val
         pct = (change_val / prev) * 100 if prev != 0 else 0
-        
-        # 차트용 데이터 (최근 일자별 시세 - iframe 내부라 복잡해서 일단 값만 가져옴)
-        # *심화: 차트까지 그리려면 네이버 dailyQuote Ajax 호출 필요하지만, 
-        # 일단은 현재가 위주로 표시하고 차트는 '값'만 있어도 충분
         
         return {
             "current": value,
             "delta": change_val,
-            "delta_pct": pct,
-            "source": "Naver"
+            "delta_pct": pct
         }
     except Exception as e:
+        # 에러가 나면 None 반환 (화면에 X 표시됨)
+        # st.error(f"디버깅용 에러 메시지: {e}") # 필요시 주석 해제해서 확인
         return None
 
 # ==========================================
-# 🚀 핵심 기술 2: 야후 파이낸스 (나머지용)
+# 🚀 핵심 기술 2: 야후 파이낸스
 # ==========================================
-# 티커 리스트
 tickers = {
     "indices": [("🇰🇷 코스피", "^KS11"), ("🇺🇸 다우존스", "^DJI"), ("🇺🇸 S&P 500", "^GSPC"), ("🇺🇸 나스닥", "^IXIC")],
     "macro": [("🛢️ WTI 원유", "CL=F"), ("👑 금", "GC=F"), ("😱 VIX", "^VIX"), ("🏭 구리", "HG=F")],
@@ -89,7 +94,6 @@ tickers = {
     "us_bonds": [("🇺🇸 미국 2년 금리", "ZT=F"), ("🇺🇸 미국 10년 금리", "^TNX")]
 }
 
-# 야후 데이터 일괄 다운로드
 all_tickers_list = []
 for group in tickers.values():
     for name, ticker in group:
@@ -105,28 +109,31 @@ def get_yahoo_data(ticker_list, period, interval):
 raw_data = get_yahoo_data(all_tickers_list, p, i)
 
 # ==========================================
-# 📟 카드 그리기 함수 (Naver / Yahoo 통합)
+# 📟 카드 그리기 함수
 # ==========================================
 def draw_card(name, ticker, is_naver=False):
     # 1. 네이버 데이터 처리
     if is_naver:
-        data = get_naver_bond(ticker) # ticker에 네이버 코드(IRr_GOV03Y 등) 전달
+        data = get_naver_bond(ticker)
         if not data:
-            st.error(f"❌ {name}")
+            # 실패 시 UI
+            st.markdown(f"""
+            <div class="metric-card" style="border-color: #ff5252;">
+                <div class="metric-title">{name}</div>
+                <div class="metric-value" style="font-size:16px; color:#ff5252;">데이터 로딩 실패</div>
+            </div>""", unsafe_allow_html=True)
             return
         
         val = data['current']
         delta = data['delta']
         pct = data['delta_pct']
         
-        # 네이버는 차트 데이터 가져오기가 복잡하여, 이번 버전엔 숫자만 표시
-        # (숫자가 제일 중요하니까요!)
+        # 차트 없음 (공백 처리)
         fig = go.Figure()
         fig.update_layout(height=0, margin=dict(l=0,r=0,t=0,b=0), xaxis=dict(visible=False), yaxis=dict(visible=False))
         
     # 2. 야후 데이터 처리
     else:
-        # 위안/원 계산 로직
         if ticker == "CALC_CNYKRW":
             try:
                 s1 = raw_data["KRW=X"]["Close"]
@@ -145,7 +152,6 @@ def draw_card(name, ticker, is_naver=False):
         delta = val - prev
         pct = (delta / prev) * 100
         
-        # 차트 그리기
         color = '#00e676' if delta >= 0 else '#ff5252'
         y_min, y_max = series.min(), series.max()
         padding = (y_max - y_min) * 0.1 if y_max != y_min else 1.0
@@ -162,7 +168,6 @@ def draw_card(name, ticker, is_naver=False):
             showlegend=False, hovermode="x"
         )
 
-    # 3. 공통: 화면 출력
     delta_sign = "▲" if delta > 0 else "▼"
     delta_color = "metric-delta-up" if delta >= 0 else "metric-delta-down"
     
@@ -173,14 +178,14 @@ def draw_card(name, ticker, is_naver=False):
         <div class="{delta_color}">{delta_sign} {abs(delta):.2f} ({pct:.2f}%)</div>
     </div>""", unsafe_allow_html=True)
     
-    if not is_naver: # 야후만 차트 그림
+    if not is_naver:
         st.plotly_chart(fig, use_container_width=True, config={'staticPlot': True})
 
 
 # ==========================================
-# 🖥️ 메인 화면 구성
+# 🖥️ 메인 화면
 # ==========================================
-st.title(f"📊 Market Dashboard ({period_option})")
+st.title(f"📊 Seondori Market Dashboard ({period_option})")
 
 if raw_data is None:
     st.error("데이터 로딩 중...")
@@ -207,10 +212,8 @@ else:
         
         with col_kr:
             st.markdown("##### 🇰🇷 한국 국채 (Naver)")
-            # 네이버 금융 코드: 3년(IRr_GOV03Y), 10년(IRr_GOV10Y)
             draw_card("한국 3년 국채 금리", "IRr_GOV03Y", is_naver=True)
             draw_card("한국 10년 국채 금리", "IRr_GOV10Y", is_naver=True)
-            st.info("한국 국채는 ETF 가격이 아닌 '실제 금리(%)'입니다.")
             
         with col_us:
             st.markdown("##### 🇺🇸 미국 국채 (Yahoo)")
