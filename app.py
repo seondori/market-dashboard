@@ -7,7 +7,7 @@ import requests
 # 1. 페이지 설정
 st.set_page_config(page_title="Seondori Market Dashboard", layout="wide", page_icon="📊")
 
-# 2. 스타일 설정
+# 2. 스타일 설정 (색상 변경 적용: 상승=Red, 하락=Green)
 st.markdown("""
     <style>
     .metric-card { 
@@ -19,8 +19,11 @@ st.markdown("""
     }
     .metric-title { font-size: 13px; color: #aaa; margin-bottom: 5px; }
     .metric-value { font-size: 24px; font-weight: bold; color: #fff; }
-    .metric-delta-up { color: #00e676; font-size: 13px; }
-    .metric-delta-down { color: #ff5252; font-size: 13px; }
+    
+    /* 한국 스타일 색상 적용 */
+    .metric-delta-up { color: #ff5252; font-size: 13px; }   /* 상승 = 빨강 */
+    .metric-delta-down { color: #00e676; font-size: 13px; } /* 하락 = 초록 */
+    
     .fallback-badge { font-size: 10px; background-color: #333; padding: 2px 6px; border-radius: 4px; color: #ff9800; margin-left: 5px; }
     </style>
 """, unsafe_allow_html=True)
@@ -53,7 +56,6 @@ def get_korea_bond_smart(code, etf_ticker):
         change_val = float(data['compareToPreviousClosePrice'].replace(',', ''))
         pct = float(data['fluctuationRate'].replace(',', ''))
         
-        # 하락 반영
         if data['fluctuationRate'] and '-' in data['fluctuationRate']:
              pass 
         elif change_val > 0 and value < (value + change_val): 
@@ -68,7 +70,6 @@ def get_korea_bond_smart(code, etf_ticker):
         }
 
     except Exception:
-        # ETF 백업
         try:
             stock = yf.Ticker(etf_ticker)
             df = stock.history(period=p, interval=i)
@@ -104,7 +105,6 @@ for group in tickers.values():
     for name, ticker in group:
         if ticker != "CALC_CNYKRW":
             all_tickers_list.append(ticker)
-# 위안화 계산을 위해 USD/CNY 추가
 all_tickers_list.append("CNY=X")
 
 @st.cache_data(ttl=60)
@@ -117,7 +117,7 @@ def get_yahoo_data(ticker_list, period, interval):
 raw_data = get_yahoo_data(list(set(all_tickers_list)), p, i)
 
 # ==========================================
-# 📟 그리기 함수
+# 📟 그리기 함수 (색상 로직 변경됨)
 # ==========================================
 def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
     # A. 한국 국채
@@ -133,7 +133,6 @@ def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
 
     # B. 일반 지표
     else:
-        # [수정됨] 원/위안 계산 (KRW/USD 나누기 CNY/USD)
         if ticker == "CALC_CNYKRW":
             try:
                 s1 = raw_data["KRW=X"]["Close"]
@@ -150,7 +149,6 @@ def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
         val = float(series.iloc[-1])
         prev = float(series.iloc[-2])
         
-        # [수정됨] 엔화 100엔 단위 변환
         if "JPYKRW" in ticker:
             val *= 100
             prev *= 100
@@ -159,17 +157,21 @@ def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
         pct = (delta / prev) * 100
         history = series
 
-    # C. 공통 렌더링
-    color = '#00e676' if delta >= 0 else '#ff5252'
+    # C. 공통 렌더링 (★ 여기가 핵심 변경 포인트 ★)
+    # 한국 스타일: 상승(>=0)이면 빨강(#ff5252), 하락이면 초록(#00e676)
+    color = '#ff5252' if delta >= 0 else '#00e676'
     
     if history is not None:
         y_min, y_max = history.min(), history.max()
         padding = (y_max - y_min) * 0.1 if y_max != y_min else 1.0
         
+        # 차트 채우기 색상도 따라감
+        fill_color = f"rgba{tuple(int(color.lstrip('#')[i:i+2], 16) for i in (0,2,4)) + (0.1,)}"
+
         fig = go.Figure(data=go.Scatter(
             x=history.index, y=history.values, mode='lines',
             line=dict(color=color, width=2),
-            fill='tozeroy', fillcolor=f"rgba{tuple(int(color.lstrip('#')[i:i+2], 16) for i in (0,2,4)) + (0.1,)}"
+            fill='tozeroy', fillcolor=fill_color
         ))
         fig.update_layout(
             margin=dict(l=0, r=0, t=5, b=5), height=50,
@@ -235,8 +237,6 @@ else:
     with tab3:
         c1, c2, c3, c4 = st.columns(4)
         with c1: draw_card("🇰🇷/🇺🇸 원/달러", "KRW=X")
-        # [수정] 원/위안으로 표기 변경
         with c2: draw_card("🇨🇳/🇰🇷 원/위안", "CALC_CNYKRW")
-        # [수정] 원/엔 (100엔 기준)으로 표기 및 계산 적용
         with c3: draw_card("🇯🇵/🇰🇷 원/엔 (100엔)", "JPYKRW=X")
         with c4: draw_card("🌎 달러 인덱스", "DX-Y.NYB")
