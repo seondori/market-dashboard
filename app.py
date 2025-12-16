@@ -6,6 +6,7 @@ import cloudscraper
 import FinanceDataReader as fdr
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
+import requests
 
 # 1. 페이지 설정
 st.set_page_config(page_title="Seondori Market Dashboard", layout="wide", page_icon="📊")
@@ -48,16 +49,13 @@ elif "6개월" in period_option: p, i = "6mo", "1d"
 else: p, i = "1y", "1d"
 
 # ==========================================
-# 🚀 핵심 기술: 국채 금리 3중 확보 전략
+# 🚀 핵심 기술: 국채 금리 4중 확보 전략 (개선)
 # ==========================================
 @st.cache_data(ttl=600) 
 def get_korea_bond_yield(naver_code, etf_ticker):
-    # 전략 1: FinanceDataReader (Investing.com 소스) - 가장 깔끔함
+    # 전략 1: FinanceDataReader (Investing.com 소스)
     try:
-        # 네이버 코드를 FDR 심볼로 변환 (Investing.com 티커)
         fdr_symbol = "KR3YT=RR" if "03Y" in naver_code else "KR10YT=RR"
-        
-        # 최근 데이터 가져오기 (데이터가 주말엔 없을 수 있어 넉넉히 요청)
         start_date = (datetime.now() - timedelta(days=10)).strftime('%Y-%m-%d')
         df = fdr.DataReader(fdr_symbol, start=start_date)
         
@@ -70,16 +68,50 @@ def get_korea_bond_yield(naver_code, etf_ticker):
         
         return {
             "current": latest, "delta": delta, "delta_pct": pct,
-            "source_type": "FDR(%)", "is_fallback": False, "history": None
+            "source_type": "FDR", "is_fallback": False, "history": None
         }
     except:
-        pass # 실패 시 전략 2로 이동
+        pass
 
-    # 전략 2: CloudScraper (네이버 크롤링) - 뚫어뻥 시도
+    # 전략 2: 한국은행 API (공식 데이터)
+    try:
+        # 한국은행 경제통계시스템 (인증키 불필요한 공개 데이터)
+        stat_code = "817Y002" if "03Y" in naver_code else "817Y004"  # 국고채 3년/10년
+        url = f"https://ecos.bok.or.kr/api/StatisticSearch/sample/json/kr/1/10/{stat_code}/D/"
+        
+        # 최근 날짜 2개 요청
+        end_date = datetime.now().strftime('%Y%m%d')
+        start_date = (datetime.now() - timedelta(days=7)).strftime('%Y%m%d')
+        url += f"{start_date}/{end_date}/"
+        
+        response = requests.get(url, timeout=5)
+        data = response.json()
+        
+        if 'StatisticSearch' in data and 'row' in data['StatisticSearch']:
+            rows = data['StatisticSearch']['row']
+            if len(rows) >= 2:
+                latest = float(rows[-1]['DATA_VALUE'])
+                prev = float(rows[-2]['DATA_VALUE'])
+                delta = latest - prev
+                pct = (delta / prev) * 100
+                
+                return {
+                    "current": latest, "delta": delta, "delta_pct": pct,
+                    "source_type": "BOK", "is_fallback": False, "history": None
+                }
+    except:
+        pass
+
+    # 전략 3: CloudScraper (네이버 크롤링)
     try:
         url = f"https://finance.naver.com/marketindex/interestDetail.naver?marketindexCd={naver_code}"
-        scraper = cloudscraper.create_scraper(browser='chrome') # 브라우저 위장 강화
-        res = scraper.get(url, timeout=5)
+        scraper = cloudscraper.create_scraper(
+            browser={'browser': 'chrome', 'platform': 'windows', 'mobile': False}
+        )
+        res = scraper.get(url, timeout=5, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7'
+        })
         soup = BeautifulSoup(res.text, 'html.parser')
         
         value_str = soup.select_one('div.head_info > span.value').text
@@ -97,14 +129,15 @@ def get_korea_bond_yield(naver_code, etf_ticker):
         
         return {
             "current": value, "delta": change_val, "delta_pct": pct,
-            "source_type": "Naver(%)", "is_fallback": False, "history": None
+            "source_type": "Naver", "is_fallback": False, "history": None
         }
     except:
-        pass # 실패 시 전략 3으로 이동
+        pass
 
-    # 전략 3: ETF 가격 (최후의 보루) - 이건 무조건 됨
+    # 전략 4: ETF → 금리 역산 (최후의 보루)
     try:
         df = yf.download(etf_ticker, period=p, interval=i, progress=False)
+        
         # MultiIndex 처리
         if isinstance(df.columns, pd.MultiIndex): 
             try:
@@ -113,9 +146,8 @@ def get_korea_bond_yield(naver_code, etf_ticker):
                 else:
                     df = df.xs('Close', level=0, axis=1)
             except:
-                 df = df.iloc[:, 0].to_frame() # 강제 변환
+                df = df.iloc[:, 0].to_frame()
 
-        # 종가 컬럼 확보
         if 'Close' in df.columns: series = df['Close']
         else: series = df.iloc[:, 0]
             
@@ -124,12 +156,29 @@ def get_korea_bond_yield(naver_code, etf_ticker):
         
         latest = float(series.iloc[-1])
         prev = float(series.iloc[-2])
-        delta = latest - prev
-        pct = (delta / prev) * 100
+        
+        # 🔥 ETF → 금리 추정
+        # 한국 국채 ETF: 114260.KS (3년), 148070.KS (10년)
+        is_3year = "114260" in etf_ticker
+        duration = 2.8 if is_3year else 8.0
+        base_yield = 2.8 if is_3year else 3.2  # 2024년 말 기준 대략값
+        
+        # ETF 수익률 계산
+        etf_return_pct = ((latest - prev) / prev) * 100
+        
+        # 금리 변화 추정: ETF 1% 하락 ≈ 금리 (1/duration)% 상승
+        yield_change_pct = -etf_return_pct / duration
+        
+        # 절대 금리 추정 (베이스라인 필요)
+        estimated_yield = base_yield + yield_change_pct
         
         return {
-            "current": latest, "delta": delta, "delta_pct": pct,
-            "source_type": "ETF대체", "is_fallback": True, "history": series
+            "current": estimated_yield,
+            "delta": yield_change_pct / 100,
+            "delta_pct": yield_change_pct,
+            "source_type": "ETF추정",
+            "is_fallback": False,  # % 단위로 표시
+            "history": None
         }
     except Exception as e:
         return None
@@ -170,13 +219,19 @@ def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
             st.markdown(f"<div class='metric-card' style='border:1px solid #ff5252'><div class='metric-title'>{name}</div><div class='metric-value' style='color:#ff5252; font-size:16px'>로딩 실패</div></div>", unsafe_allow_html=True)
             return
         
-        val, delta, pct, history = data['current'], data['delta'], data['delta_pct'], data['history']
+        val, delta, pct = data['current'], data['delta'], data['delta_pct']
         src_type = data['source_type']
         
-        # 배지 표시 (성공한 소스 알려줌: FDR > Naver > ETF)
-        badge_bg = "#333" if data['is_fallback'] else "#003300"
-        badge_fg = "#ff9800" if data['is_fallback'] else "#00e676"
+        # 배지 표시
+        badge_colors = {
+            "FDR": ("#004d00", "#00ff00"),
+            "BOK": ("#003d5c", "#00bfff"), 
+            "Naver": ("#4d3800", "#ffa500"),
+            "ETF추정": ("#4d0000", "#ff6b6b")
+        }
+        badge_bg, badge_fg = badge_colors.get(src_type, ("#333", "#ff9800"))
         name += f" <span class='fallback-badge' style='background:{badge_bg}; color:{badge_fg};'>{src_type}</span>"
+        history = None
 
     # B. 일반 지표
     else:
@@ -231,8 +286,8 @@ def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
     delta_sign = "▲" if delta > 0 else "▼"
     delta_color = "metric-delta-up" if delta >= 0 else "metric-delta-down"
     
-    # 단위: % 붙이기 (국채 성공 or TNX)
-    unit = "%" if (is_korea_bond and not data.get('is_fallback')) or 'TNX' in ticker else ""
+    # 단위: 국채는 항상 % (is_fallback 제거)
+    unit = "%" if is_korea_bond or 'TNX' in ticker else ""
     
     st.markdown(f"""
     <div class="metric-card">
