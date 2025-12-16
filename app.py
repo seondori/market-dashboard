@@ -260,16 +260,7 @@ def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
         except:
             return
 
-    # C. 공통 렌더링
-    color = '#ff5252' if delta >= 0 else '#00e676'
-    
-    if history is not None:
-        y_min, y_max = history.min(), history.max()
-        padding = (y_max - y_min) * 0.1 if y_max != y_min else 1.0
-        fill_color = f"rgba{tuple(int(color.lstrip('#')[i:i+2], 16) for i in (0,2,4)) + (0.1,)}"
-
-        fig = go.Figure(data=go.Scatter(
-            x=history.index, y=history.values, mode='lines',
+lines',
             line=dict(color=color, width=2),
             fill='tozeroy', fillcolor=fill_color
         ))
