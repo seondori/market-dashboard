@@ -3,7 +3,6 @@ import yfinance as yf
 import plotly.graph_objects as go
 import pandas as pd
 import requests
-from bs4 import BeautifulSoup
 
 # 1. 페이지 설정
 st.set_page_config(page_title="Seondori Market Dashboard", layout="wide", page_icon="📊")
@@ -22,6 +21,7 @@ st.markdown("""
     .metric-value { font-size: 24px; font-weight: bold; color: #fff; }
     .metric-delta-up { color: #00e676; font-size: 13px; }
     .metric-delta-down { color: #ff5252; font-size: 13px; }
+    .fallback-badge { font-size: 10px; background-color: #333; padding: 2px 6px; border-radius: 4px; color: #ff9800; margin-left: 5px; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -38,54 +38,65 @@ elif "6개월" in period_option: p, i = "6mo", "1d"
 else: p, i = "1y", "1d"
 
 # ==========================================
-# 🚀 핵심 기술 1: 네이버 금융 크롤링 (차단 우회 적용)
+# 🚀 핵심 기술: 네이버 모바일 API + ETF 자동 백업
 # ==========================================
 @st.cache_data(ttl=300) 
-def get_naver_bond(code):
+def get_korea_bond_smart(code, etf_ticker):
+    # 1단계: 네이버 모바일 API 시도 (가볍고 차단 덜 됨)
     try:
-        # [중요] 가짜 신분증(User-Agent) 만들기
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        }
+        url = f"https://api.stock.naver.com/marketindex/match/{code}"
+        headers = {'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1'}
         
-        url = f"https://finance.naver.com/marketindex/interestDetail.naver?marketindexCd={code}"
+        res = requests.get(url, headers=headers, timeout=3)
+        data = res.json()
         
-        # 헤더를 포함해서 요청 (이제 네이버가 안 막음)
-        res = requests.get(url, headers=headers, timeout=5)
-        soup = BeautifulSoup(res.text, 'html.parser')
+        # 데이터 파싱
+        value = float(data['closePrice'].replace(',', ''))
+        change_val = float(data['compareToPreviousClosePrice'].replace(',', ''))
+        pct = float(data['fluctuationRate'].replace(',', ''))
         
-        # 데이터 추출
-        value = soup.select_one('div.head_info > span.value').text
-        value = float(value.replace(',', ''))
-        
-        change_val = soup.select_one('div.head_info > span.change').text
-        change_val = float(change_val.replace(',', '').strip())
-        
-        # 방향 확인 (상승/하락/보합)
-        direction_element = soup.select_one('div.head_info > span.blind')
-        direction = direction_element.text if direction_element else ""
-        
-        if "하락" in direction:
-            change_val = -change_val
-        elif "보합" in direction:
-            change_val = 0.0
-        
-        # 변화율 계산
-        prev = value - change_val
-        pct = (change_val / prev) * 100 if prev != 0 else 0
+        # 하락 반영 (API는 절대값만 주는 경우가 있음)
+        if data['fluctuationRate'] and '-' in data['fluctuationRate']:
+             pass # 이미 음수면 패스
+        elif change_val > 0 and value < (value + change_val): 
+             change_val = -change_val # 로직상 보정 (네이버 API 특성)
+
+        # 네이버 API는 전일대비 부호를 따로 줌 ('+' or '-')
+        # 안전하게 계산: (오늘 - 어제)
         
         return {
             "current": value,
             "delta": change_val,
-            "delta_pct": pct
+            "delta_pct": pct,
+            "is_fallback": False,
+            "history": None # API는 히스토리 안줌 -> 차트 없음
         }
-    except Exception as e:
-        # 에러가 나면 None 반환 (화면에 X 표시됨)
-        # st.error(f"디버깅용 에러 메시지: {e}") # 필요시 주석 해제해서 확인
-        return None
+
+    except Exception:
+        # 2단계: 실패 시 ETF 데이터로 자동 전환 (무조건 성공함)
+        try:
+            stock = yf.Ticker(etf_ticker)
+            df = stock.history(period=p, interval=i)
+            
+            if df.empty: return None
+            
+            latest = df['Close'].iloc[-1]
+            prev = df['Close'].iloc[-2]
+            delta = latest - prev
+            pct = (delta / prev) * 100
+            
+            return {
+                "current": latest,
+                "delta": delta,
+                "delta_pct": pct,
+                "is_fallback": True, # 백업 모드 가동
+                "history": df['Close']
+            }
+        except:
+            return None
 
 # ==========================================
-# 🚀 핵심 기술 2: 야후 파이낸스
+# 🚀 야후 데이터 (나머지 지표용)
 # ==========================================
 tickers = {
     "indices": [("🇰🇷 코스피", "^KS11"), ("🇺🇸 다우존스", "^DJI"), ("🇺🇸 S&P 500", "^GSPC"), ("🇺🇸 나스닥", "^IXIC")],
@@ -109,30 +120,32 @@ def get_yahoo_data(ticker_list, period, interval):
 raw_data = get_yahoo_data(all_tickers_list, p, i)
 
 # ==========================================
-# 📟 카드 그리기 함수
+# 📟 그리기 함수 (지능형)
 # ==========================================
-def draw_card(name, ticker, is_naver=False):
-    # 1. 네이버 데이터 처리
-    if is_naver:
-        data = get_naver_bond(ticker)
-        if not data:
-            # 실패 시 UI
-            st.markdown(f"""
-            <div class="metric-card" style="border-color: #ff5252;">
-                <div class="metric-title">{name}</div>
-                <div class="metric-value" style="font-size:16px; color:#ff5252;">데이터 로딩 실패</div>
-            </div>""", unsafe_allow_html=True)
-            return
+def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
+    # A. 한국 국채 처리
+    if is_korea_bond:
+        data = get_korea_bond_smart(ticker, etf_code)
         
+        if not data:
+            st.error(f"❌ {name}")
+            return
+            
         val = data['current']
         delta = data['delta']
         pct = data['delta_pct']
         
-        # 차트 없음 (공백 처리)
-        fig = go.Figure()
-        fig.update_layout(height=0, margin=dict(l=0,r=0,t=0,b=0), xaxis=dict(visible=False), yaxis=dict(visible=False))
-        
-    # 2. 야후 데이터 처리
+        # 백업 모드(ETF)일 때 처리
+        if data['is_fallback']:
+            name += " <span class='fallback-badge'>ETF대체</span>"
+            # ETF는 가격이 내리면(파란불) -> 금리 상승(나쁜거 아님)
+            # 하지만 직관성을 위해 그냥 가격 등락대로 표시
+            history = data['history']
+        else:
+            name += " <span class='fallback-badge' style='color:#00e676; background:#003300;'>Naver실시간</span>"
+            history = None # API는 차트 없음
+
+    # B. 일반 지표 처리
     else:
         if ticker == "CALC_CNYKRW":
             try:
@@ -151,13 +164,17 @@ def draw_card(name, ticker, is_naver=False):
         prev = float(series.iloc[-2])
         delta = val - prev
         pct = (delta / prev) * 100
-        
-        color = '#00e676' if delta >= 0 else '#ff5252'
-        y_min, y_max = series.min(), series.max()
+        history = series
+
+    # C. 공통: 차트 및 카드 렌더링
+    color = '#00e676' if delta >= 0 else '#ff5252'
+    
+    if history is not None:
+        y_min, y_max = history.min(), history.max()
         padding = (y_max - y_min) * 0.1 if y_max != y_min else 1.0
         
         fig = go.Figure(data=go.Scatter(
-            x=series.index, y=series.values, mode='lines',
+            x=history.index, y=history.values, mode='lines',
             line=dict(color=color, width=2),
             fill='tozeroy', fillcolor=f"rgba{tuple(int(color.lstrip('#')[i:i+2], 16) for i in (0,2,4)) + (0.1,)}"
         ))
@@ -167,18 +184,26 @@ def draw_card(name, ticker, is_naver=False):
             xaxis=dict(visible=False), yaxis=dict(visible=False, range=[y_min-padding, y_max+padding]),
             showlegend=False, hovermode="x"
         )
+    else:
+        # 차트 데이터 없을 때 (API 성공 시) - 빈 차트
+        fig = go.Figure()
+        fig.update_layout(height=0, margin=dict(l=0,r=0,t=0,b=0), xaxis=dict(visible=False), yaxis=dict(visible=False))
 
     delta_sign = "▲" if delta > 0 else "▼"
     delta_color = "metric-delta-up" if delta >= 0 else "metric-delta-down"
     
+    # 한국 국채 백업모드일 경우 단위 표시 변경
+    unit = "%" if is_korea_bond and not data.get('is_fallback') else ""
+    if 'TNX' in ticker: unit = "%"
+    
     st.markdown(f"""
     <div class="metric-card">
         <div class="metric-title">{name}</div>
-        <div class="metric-value">{val:,.2f}{'%' if is_naver or 'TNX' in ticker else ''}</div>
+        <div class="metric-value">{val:,.2f}{unit}</div>
         <div class="{delta_color}">{delta_sign} {abs(delta):.2f} ({pct:.2f}%)</div>
     </div>""", unsafe_allow_html=True)
     
-    if not is_naver:
+    if history is not None:
         st.plotly_chart(fig, use_container_width=True, config={'staticPlot': True})
 
 
@@ -188,12 +213,11 @@ def draw_card(name, ticker, is_naver=False):
 st.title(f"📊 Seondori Market Dashboard ({period_option})")
 
 if raw_data is None:
-    st.error("데이터 로딩 중...")
+    st.error("서버 연결 확인 중...")
 else:
-    tab1, tab2, tab3 = st.tabs(["📈 주가지수 & 매크로", "💰 국채 금리 (%)", "💱 환율"])
+    tab1, tab2, tab3 = st.tabs(["📈 주가지수 & 매크로", "💰 국채 금리", "💱 환율"])
     
     with tab1:
-        st.caption("글로벌 지수 및 경기 선행 지표")
         c1, c2, c3, c4 = st.columns(4)
         with c1: draw_card("🇰🇷 코스피", "^KS11")
         with c2: draw_card("🇺🇸 다우존스", "^DJI")
@@ -203,20 +227,19 @@ else:
         c5, c6, c7, c8 = st.columns(4)
         with c5: draw_card("🛢️ WTI 원유", "CL=F")
         with c6: draw_card("👑 금", "GC=F")
-        with c7: draw_card("😱 VIX (공포)", "^VIX")
-        with c8: draw_card("🏭 구리 (제조업)", "HG=F")
+        with c7: draw_card("😱 VIX", "^VIX")
+        with c8: draw_card("🏭 구리", "HG=F")
 
     with tab2:
-        st.caption("⚠️ 한국 국채는 네이버 금융 실시간 금리(%)를 크롤링합니다.")
         col_kr, col_us = st.columns(2)
-        
         with col_kr:
-            st.markdown("##### 🇰🇷 한국 국채 (Naver)")
-            draw_card("한국 3년 국채 금리", "IRr_GOV03Y", is_naver=True)
-            draw_card("한국 10년 국채 금리", "IRr_GOV10Y", is_naver=True)
+            st.markdown("##### 🇰🇷 한국 국채 (Auto)")
+            # 네이버 코드 + ETF 코드(백업용) 함께 전달
+            draw_card("한국 3년 금리", "IRr_GOV03Y", is_korea_bond=True, etf_code="114260.KS")
+            draw_card("한국 10년 금리", "IRr_GOV10Y", is_korea_bond=True, etf_code="148070.KS")
             
         with col_us:
-            st.markdown("##### 🇺🇸 미국 국채 (Yahoo)")
+            st.markdown("##### 🇺🇸 미국 국채")
             draw_card("미국 2년 금리 (선물)", "ZT=F")
             draw_card("미국 10년 금리 (지수)", "^TNX")
 
