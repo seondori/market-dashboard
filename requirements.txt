@@ -4,3 +4,4 @@ plotly
 pandas
 beautifulsoup4
 requests
+cloudscraper

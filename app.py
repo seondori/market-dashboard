@@ -2,12 +2,13 @@ import streamlit as st
 import yfinance as yf
 import plotly.graph_objects as go
 import pandas as pd
-import requests
+import cloudscraper
+from bs4 import BeautifulSoup
 
 # 1. 페이지 설정
 st.set_page_config(page_title="Seondori Market Dashboard", layout="wide", page_icon="📊")
 
-# 2. 스타일 설정 (색상 변경 적용: 상승=Red, 하락=Green)
+# 2. 스타일 설정 (상승=빨강, 하락=초록)
 st.markdown("""
     <style>
     .metric-card { 
@@ -19,12 +20,17 @@ st.markdown("""
     }
     .metric-title { font-size: 13px; color: #aaa; margin-bottom: 5px; }
     .metric-value { font-size: 24px; font-weight: bold; color: #fff; }
-    
-    /* 한국 스타일 색상 적용 */
-    .metric-delta-up { color: #ff5252; font-size: 13px; }   /* 상승 = 빨강 */
-    .metric-delta-down { color: #00e676; font-size: 13px; } /* 하락 = 초록 */
-    
+    .metric-delta-up { color: #ff5252; font-size: 13px; }   /* 상승=Red */
+    .metric-delta-down { color: #00e676; font-size: 13px; } /* 하락=Green */
     .fallback-badge { font-size: 10px; background-color: #333; padding: 2px 6px; border-radius: 4px; color: #ff9800; margin-left: 5px; }
+    
+    /* 모바일 2열 배치 */
+    @media (max-width: 640px) {
+        div[data-testid="column"] {
+            flex: 0 0 calc(50% - 10px) !important;
+            min-width: calc(50% - 10px) !important;
+        }
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -41,26 +47,37 @@ elif "6개월" in period_option: p, i = "6mo", "1d"
 else: p, i = "1y", "1d"
 
 # ==========================================
-# 🚀 핵심 기술: 네이버 모바일 API + ETF 자동 백업
+# 🚀 핵심 기술: CloudScraper로 네이버 뚫기 (금리 %)
 # ==========================================
-@st.cache_data(ttl=300) 
-def get_korea_bond_smart(code, etf_ticker):
+@st.cache_data(ttl=600) 
+def get_korea_bond_yield(code, etf_ticker):
+    # 1차 시도: CloudScraper로 네이버 금융(HTML) 직접 크롤링 -> 성공 시 % 반환
     try:
-        url = f"https://api.stock.naver.com/marketindex/match/{code}"
-        headers = {'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1'}
+        url = f"https://finance.naver.com/marketindex/interestDetail.naver?marketindexCd={code}"
         
-        res = requests.get(url, headers=headers, timeout=3)
-        data = res.json()
+        # 일반 requests 대신 cloudscraper 사용 (보안 우회)
+        scraper = cloudscraper.create_scraper() 
+        res = scraper.get(url)
+        soup = BeautifulSoup(res.text, 'html.parser')
         
-        value = float(data['closePrice'].replace(',', ''))
-        change_val = float(data['compareToPreviousClosePrice'].replace(',', ''))
-        pct = float(data['fluctuationRate'].replace(',', ''))
+        # 데이터 추출
+        value_str = soup.select_one('div.head_info > span.value').text
+        value = float(value_str.replace(',', ''))
         
-        if data['fluctuationRate'] and '-' in data['fluctuationRate']:
-             pass 
-        elif change_val > 0 and value < (value + change_val): 
-             change_val = -change_val
-
+        change_str = soup.select_one('div.head_info > span.change').text
+        change_val = float(change_str.replace(',', '').strip())
+        
+        # 방향 확인
+        direction = soup.select_one('div.head_info > span.blind').text
+        if "하락" in direction:
+            change_val = -change_val
+        elif "보합" in direction:
+            change_val = 0.0
+            
+        # 변화율
+        prev = value - change_val
+        pct = (change_val / prev) * 100 if prev != 0 else 0
+        
         return {
             "current": value,
             "delta": change_val,
@@ -70,13 +87,26 @@ def get_korea_bond_smart(code, etf_ticker):
         }
 
     except Exception:
+        # 2차 시도: 실패 시 ETF 데이터로 자동 전환 (안전장치)
         try:
-            stock = yf.Ticker(etf_ticker)
-            df = stock.history(period=p, interval=i)
-            if df.empty: return None
+            # yf.download 사용으로 lower 에러 원천 차단
+            df = yf.download(etf_ticker, period=p, interval=i, progress=False)
             
-            latest = df['Close'].iloc[-1]
-            prev = df['Close'].iloc[-2]
+            # 데이터 구조 정리 (MultiIndex 처리)
+            if isinstance(df.columns, pd.MultiIndex):
+                df = df.xs('Close', level=0, axis=1)
+            
+            # 티커 선택
+            if etf_ticker in df.columns:
+                series = df[etf_ticker]
+            else:
+                series = df.iloc[:, 0]
+                
+            series = series.dropna()
+            if series.empty: return None
+            
+            latest = float(series.iloc[-1])
+            prev = float(series.iloc[-2])
             delta = latest - prev
             pct = (delta / prev) * 100
             
@@ -84,14 +114,14 @@ def get_korea_bond_smart(code, etf_ticker):
                 "current": latest,
                 "delta": delta,
                 "delta_pct": pct,
-                "is_fallback": True,
-                "history": df['Close']
+                "is_fallback": True, # 백업 모드
+                "history": series
             }
-        except:
+        except Exception:
             return None
 
 # ==========================================
-# 🚀 야후 데이터
+# 🚀 야후 데이터 (나머지 지표)
 # ==========================================
 tickers = {
     "indices": [("🇰🇷 코스피", "^KS11"), ("🇺🇸 다우존스", "^DJI"), ("🇺🇸 S&P 500", "^GSPC"), ("🇺🇸 나스닥", "^IXIC")],
@@ -100,72 +130,78 @@ tickers = {
     "us_bonds": [("🇺🇸 미국 2년 금리", "ZT=F"), ("🇺🇸 미국 10년 금리", "^TNX")]
 }
 
+# 티커 리스트 생성
 all_tickers_list = []
 for group in tickers.values():
     for name, ticker in group:
         if ticker != "CALC_CNYKRW":
             all_tickers_list.append(ticker)
-all_tickers_list.append("CNY=X")
+all_tickers_list.append("CNY=X") # 위안화 계산용
 
+# 데이터 다운로드 (yf.download 사용)
 @st.cache_data(ttl=60)
 def get_yahoo_data(ticker_list, period, interval):
     try:
-        return yf.download(ticker_list, period=period, interval=interval, group_by='ticker', threads=True, progress=False)
+        data = yf.download(ticker_list, period=period, interval=interval, group_by='ticker', threads=True, progress=False)
+        return data
     except:
         return None
 
 raw_data = get_yahoo_data(list(set(all_tickers_list)), p, i)
 
 # ==========================================
-# 📟 그리기 함수 (색상 로직 변경됨)
+# 📟 그리기 함수
 # ==========================================
 def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
-    # A. 한국 국채
+    # A. 한국 국채 로직
     if is_korea_bond:
-        data = get_korea_bond_smart(ticker, etf_code)
+        data = get_korea_bond_yield(ticker, etf_code)
         if not data:
-            st.error(f"❌ {name}")
+            st.markdown(f"<div class='metric-card' style='border:1px solid #ff5252'><div class='metric-title'>{name}</div><div class='metric-value' style='color:#ff5252; font-size:16px'>로딩 실패</div></div>", unsafe_allow_html=True)
             return
+            
         val, delta, pct, history = data['current'], data['delta'], data['delta_pct'], data['history']
         
+        # 배지 달기
         if data['is_fallback']: name += " <span class='fallback-badge'>ETF대체</span>"
-        else: name += " <span class='fallback-badge' style='color:#00e676; background:#003300;'>Naver</span>"
+        else: name += " <span class='fallback-badge' style='color:#00e676; background:#003300;'>Naver(%)</span>"
 
-    # B. 일반 지표
+    # B. 일반 지표 로직
     else:
-        if ticker == "CALC_CNYKRW":
-            try:
-                s1 = raw_data["KRW=X"]["Close"]
-                s2 = raw_data["CNY=X"]["Close"]
+        # 데이터 추출 및 계산
+        try:
+            if ticker == "CALC_CNYKRW":
+                # 원/위안 = (원/달러) / (위안/달러)
+                s1 = raw_data["KRW=X"]["Close"] if "KRW=X" in raw_data else raw_data.iloc[:,0] 
+                s2 = raw_data["CNY=X"]["Close"] if "CNY=X" in raw_data else raw_data.iloc[:,0]
                 series = s1 / s2
-            except: return
-        else:
-            if ticker not in raw_data: return
-            series = raw_data[ticker]['Close']
-        
-        series = series.dropna()
-        if len(series) < 2: return
-        
-        val = float(series.iloc[-1])
-        prev = float(series.iloc[-2])
-        
-        if "JPYKRW" in ticker:
-            val *= 100
-            prev *= 100
+            else:
+                if raw_data is None or ticker not in raw_data: return
+                series = raw_data[ticker]['Close']
             
-        delta = val - prev
-        pct = (delta / prev) * 100
-        history = series
+            series = series.dropna()
+            if series.empty: return
+            
+            val = float(series.iloc[-1])
+            prev = float(series.iloc[-2])
+            
+            # 엔화 100엔 단위 보정
+            if "JPYKRW" in ticker:
+                val *= 100
+                prev *= 100
+                
+            delta = val - prev
+            pct = (delta / prev) * 100
+            history = series
+        except:
+            return
 
-    # C. 공통 렌더링 (★ 여기가 핵심 변경 포인트 ★)
-    # 한국 스타일: 상승(>=0)이면 빨강(#ff5252), 하락이면 초록(#00e676)
-    color = '#ff5252' if delta >= 0 else '#00e676'
+    # C. 화면 표시 (차트 & 카드)
+    color = '#ff5252' if delta >= 0 else '#00e676' # 상승=빨강, 하락=초록
     
     if history is not None:
         y_min, y_max = history.min(), history.max()
         padding = (y_max - y_min) * 0.1 if y_max != y_min else 1.0
-        
-        # 차트 채우기 색상도 따라감
         fill_color = f"rgba{tuple(int(color.lstrip('#')[i:i+2], 16) for i in (0,2,4)) + (0.1,)}"
 
         fig = go.Figure(data=go.Scatter(
@@ -186,6 +222,7 @@ def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
     delta_sign = "▲" if delta > 0 else "▼"
     delta_color = "metric-delta-up" if delta >= 0 else "metric-delta-down"
     
+    # 단위: 국채(Naver성공)거나 미국금리(TNX)면 % 붙임
     unit = "%" if (is_korea_bond and not data.get('is_fallback')) or 'TNX' in ticker else ""
     
     st.markdown(f"""
@@ -200,12 +237,12 @@ def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
 
 
 # ==========================================
-# 🖥️ 메인 화면
+# 🖥️ 메인 화면 출력
 # ==========================================
-st.title(f"📊 Market Dashboard ({period_option})")
+st.title(f"📊 Seondori Market Dashboard ({period_option})")
 
 if raw_data is None:
-    st.error("서버 연결 확인 중...")
+    st.error("데이터 서버 연결 중... (잠시만 기다려주세요)")
 else:
     tab1, tab2, tab3 = st.tabs(["📈 주가지수 & 매크로", "💰 국채 금리", "💱 환율"])
     
@@ -219,15 +256,16 @@ else:
         c5, c6, c7, c8 = st.columns(4)
         with c5: draw_card("🛢️ WTI 원유", "CL=F")
         with c6: draw_card("👑 금", "GC=F")
-        with c7: draw_card("😱 VIX", "^VIX")
-        with c8: draw_card("🏭 구리", "HG=F")
+        with c7: draw_card("😱 VIX (공포)", "^VIX")
+        with c8: draw_card("🏭 구리 (제조업)", "HG=F")
 
     with tab2:
         col_kr, col_us = st.columns(2)
         with col_kr:
-            st.markdown("##### 🇰🇷 한국 국채 (Auto)")
-            draw_card("한국 3년 금리", "IRr_GOV03Y", is_korea_bond=True, etf_code="114260.KS")
-            draw_card("한국 10년 금리", "IRr_GOV10Y", is_korea_bond=True, etf_code="148070.KS")
+            st.markdown("##### 🇰🇷 한국 국채")
+            # 네이버 코드와 ETF 코드를 동시에 넣어, 실패 시 자동 복구
+            draw_card("한국 3년 국채", "IRr_GOV03Y", is_korea_bond=True, etf_code="114260.KS")
+            draw_card("한국 10년 국채", "IRr_GOV10Y", is_korea_bond=True, etf_code="148070.KS")
             
         with col_us:
             st.markdown("##### 🇺🇸 미국 국채")
@@ -236,7 +274,7 @@ else:
 
     with tab3:
         c1, c2, c3, c4 = st.columns(4)
-        with c1: draw_card("🇰🇷/🇺🇸 원/달러", "KRW=X")
-        with c2: draw_card("🇨🇳/🇰🇷 원/위안", "CALC_CNYKRW")
-        with c3: draw_card("🇯🇵/🇰🇷 원/엔 (100엔)", "JPYKRW=X")
+        with c1: draw_card("🇰🇷 원/달러", "KRW=X")
+        with c2: draw_card("🇨🇳 원/위안", "CALC_CNYKRW")
+        with c3: draw_card("🇯🇵 원/엔 (100엔)", "JPYKRW=X")
         with c4: draw_card("🌎 달러 인덱스", "DX-Y.NYB")
