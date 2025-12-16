@@ -52,56 +52,37 @@ else: p, i = "1y", "1d"
 # 🚀 핵심 기술: 국채 금리 4중 확보 전략 (개선)
 # ==========================================
 @st.cache_data(ttl=600) 
-def get_korea_bond_yield(naver_code, etf_ticker, period="1mo"):
+def get_korea_bond_yield(naver_code, etf_ticker):
     # 전략 1: FinanceDataReader (Investing.com 소스)
     try:
         fdr_symbol = "KR3YT=RR" if "03Y" in naver_code else "KR10YT=RR"
-        
-        # 기간에 따라 데이터 범위 조정
-        if period == "5d":
-            start_date = (datetime.now() - timedelta(days=10)).strftime('%Y-%m-%d')
-        elif period == "1mo":
-            start_date = (datetime.now() - timedelta(days=35)).strftime('%Y-%m-%d')
-        elif period == "6mo":
-            start_date = (datetime.now() - timedelta(days=190)).strftime('%Y-%m-%d')
-        else:  # 1y
-            start_date = (datetime.now() - timedelta(days=370)).strftime('%Y-%m-%d')
-            
+        start_date = (datetime.now() - timedelta(days=10)).strftime('%Y-%m-%d')
         df = fdr.DataReader(fdr_symbol, start=start_date)
         
         if df is None or df.empty: raise Exception("Empty Data")
         
-        # 히스토리 데이터 준비
-        history = df['Close'].dropna()
-        
-        latest = float(history.iloc[-1])
-        prev = float(history.iloc[-2])
+        latest = float(df['Close'].iloc[-1])
+        prev = float(df['Close'].iloc[-2])
         delta = latest - prev
         pct = (delta / prev) * 100
         
         return {
             "current": latest, "delta": delta, "delta_pct": pct,
-            "source_type": "FDR", "is_fallback": False, "history": history
+            "source_type": "FDR", "is_fallback": False, "history": None
         }
     except:
         pass
 
     # 전략 2: 한국은행 API (공식 데이터)
     try:
-        stat_code = "817Y002" if "03Y" in naver_code else "817Y004"
+        # 한국은행 경제통계시스템 (인증키 불필요한 공개 데이터)
+        stat_code = "817Y002" if "03Y" in naver_code else "817Y004"  # 국고채 3년/10년
+        url = f"https://ecos.bok.or.kr/api/StatisticSearch/sample/json/kr/1/10/{stat_code}/D/"
         
-        # 기간에 따라 날짜 범위 설정
+        # 최근 날짜 2개 요청
         end_date = datetime.now().strftime('%Y%m%d')
-        if period == "5d":
-            start_date = (datetime.now() - timedelta(days=10)).strftime('%Y%m%d')
-        elif period == "1mo":
-            start_date = (datetime.now() - timedelta(days=35)).strftime('%Y%m%d')
-        elif period == "6mo":
-            start_date = (datetime.now() - timedelta(days=190)).strftime('%Y%m%d')
-        else:
-            start_date = (datetime.now() - timedelta(days=370)).strftime('%Y%m%d')
-        
-        url = f"https://ecos.bok.or.kr/api/StatisticSearch/sample/json/kr/1/1000/{stat_code}/D/{start_date}/{end_date}/"
+        start_date = (datetime.now() - timedelta(days=7)).strftime('%Y%m%d')
+        url += f"{start_date}/{end_date}/"
         
         response = requests.get(url, timeout=5)
         data = response.json()
@@ -109,11 +90,6 @@ def get_korea_bond_yield(naver_code, etf_ticker, period="1mo"):
         if 'StatisticSearch' in data and 'row' in data['StatisticSearch']:
             rows = data['StatisticSearch']['row']
             if len(rows) >= 2:
-                # 히스토리 데이터 생성
-                dates = [datetime.strptime(row['TIME'], '%Y%m%d') for row in rows]
-                values = [float(row['DATA_VALUE']) for row in rows]
-                history = pd.Series(values, index=dates)
-                
                 latest = float(rows[-1]['DATA_VALUE'])
                 prev = float(rows[-2]['DATA_VALUE'])
                 delta = latest - prev
@@ -121,12 +97,12 @@ def get_korea_bond_yield(naver_code, etf_ticker, period="1mo"):
                 
                 return {
                     "current": latest, "delta": delta, "delta_pct": pct,
-                    "source_type": "BOK", "is_fallback": False, "history": history
+                    "source_type": "BOK", "is_fallback": False, "history": None
                 }
     except:
         pass
 
-    # 전략 3: CloudScraper (네이버 크롤링) - 차트 없음
+    # 전략 3: CloudScraper (네이버 크롤링)
     try:
         url = f"https://finance.naver.com/marketindex/interestDetail.naver?marketindexCd={naver_code}"
         scraper = cloudscraper.create_scraper(
@@ -160,11 +136,7 @@ def get_korea_bond_yield(naver_code, etf_ticker, period="1mo"):
 
     # 전략 4: ETF 가격 그대로 표시 (금리 변환 포기)
     try:
-        # 기간 매핑
-        period_map = {"5d": "5d", "1mo": "1mo", "6mo": "6mo", "1y": "1y"}
-        etf_period = period_map.get(period, "1mo")
-        
-        df = yf.download(etf_ticker, period=etf_period, interval="1d", progress=False)
+        df = yf.download(etf_ticker, period="5d", interval="1d", progress=False)
         
         # MultiIndex 처리
         if isinstance(df.columns, pd.MultiIndex): 
@@ -193,8 +165,8 @@ def get_korea_bond_yield(naver_code, etf_ticker, period="1mo"):
             "delta": delta,
             "delta_pct": pct,
             "source_type": "ETF대체",
-            "is_fallback": True,
-            "history": series  # ETF는 차트 표시
+            "is_fallback": True,  # 가격 단위
+            "history": None
         }
     except Exception as e:
         return None
