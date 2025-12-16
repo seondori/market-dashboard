@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 # 1. 페이지 설정
 st.set_page_config(page_title="Seondori Market Dashboard", layout="wide", page_icon="📊")
 
-# 2. 스타일 설정
+# 2. 스타일 설정 (상승=빨강, 하락=초록)
 st.markdown("""
     <style>
     .metric-card { 
@@ -54,10 +54,10 @@ else: p, i = "1y", "1d"
 def get_korea_bond_yield(naver_code, etf_ticker):
     # 전략 1: FinanceDataReader (Investing.com 소스) - 가장 깔끔함
     try:
-        # 네이버 코드를 FDR 심볼로 변환
+        # 네이버 코드를 FDR 심볼로 변환 (Investing.com 티커)
         fdr_symbol = "KR3YT=RR" if "03Y" in naver_code else "KR10YT=RR"
         
-        # 최근 1주일 데이터 가져오기
+        # 최근 데이터 가져오기 (데이터가 주말엔 없을 수 있어 넉넉히 요청)
         start_date = (datetime.now() - timedelta(days=10)).strftime('%Y-%m-%d')
         df = fdr.DataReader(fdr_symbol, start=start_date)
         
@@ -105,9 +105,18 @@ def get_korea_bond_yield(naver_code, etf_ticker):
     # 전략 3: ETF 가격 (최후의 보루) - 이건 무조건 됨
     try:
         df = yf.download(etf_ticker, period=p, interval=i, progress=False)
-        if isinstance(df.columns, pd.MultiIndex): df = df.xs('Close', level=0, axis=1)
-        
-        if etf_ticker in df.columns: series = df[etf_ticker]
+        # MultiIndex 처리
+        if isinstance(df.columns, pd.MultiIndex): 
+            try:
+                if etf_ticker in df.columns.get_level_values(1):
+                    df = df.xs(etf_ticker, level=1, axis=1)
+                else:
+                    df = df.xs('Close', level=0, axis=1)
+            except:
+                 df = df.iloc[:, 0].to_frame() # 강제 변환
+
+        # 종가 컬럼 확보
+        if 'Close' in df.columns: series = df['Close']
         else: series = df.iloc[:, 0]
             
         series = series.dropna()
@@ -122,7 +131,7 @@ def get_korea_bond_yield(naver_code, etf_ticker):
             "current": latest, "delta": delta, "delta_pct": pct,
             "source_type": "ETF대체", "is_fallback": True, "history": series
         }
-    except:
+    except Exception as e:
         return None
 
 # ==========================================
@@ -164,10 +173,10 @@ def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
         val, delta, pct, history = data['current'], data['delta'], data['delta_pct'], data['history']
         src_type = data['source_type']
         
-        # 배지 표시 (성공한 소스 알려줌)
-        badge_color = "#333" if data['is_fallback'] else "#003300"
-        text_color = "#ff9800" if data['is_fallback'] else "#00e676"
-        name += f" <span class='fallback-badge' style='background:{badge_color}; color:{text_color};'>{src_type}</span>"
+        # 배지 표시 (성공한 소스 알려줌: FDR > Naver > ETF)
+        badge_bg = "#333" if data['is_fallback'] else "#003300"
+        badge_fg = "#ff9800" if data['is_fallback'] else "#00e676"
+        name += f" <span class='fallback-badge' style='background:{badge_bg}; color:{badge_fg};'>{src_type}</span>"
 
     # B. 일반 지표
     else:
