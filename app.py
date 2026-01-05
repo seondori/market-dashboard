@@ -288,17 +288,19 @@ def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
         st.plotly_chart(fig, use_container_width=True, config={'staticPlot': True})
 
 # ==========================================
-# 🖥️ 메인 화면 (이 부분을 통째로 교체하세요)
+# 🖥️ 메인 화면 (기존 탭 코드 전부 삭제 후 이 코드로 교체)
 # ==========================================
 st.title(f"📊 Seondori Market Dashboard ({period_option})")
 
 if raw_data is None:
     st.error("데이터 서버 연결 중...")
 else:
-    # 1. 탭을 4개로 다시 정의합니다. (tab4 추가)
-    tab1, tab2, tab3, tab4 = st.tabs(["📈 주가지수 & 매크로", "💰 국채 금리", "💱 환율", "🔍 기술적 분석"])
+    # 1. 여기서 탭 4개를 한 번에 정의합니다.
+    # 기존에 tab1, tab2, tab3 = st.tabs(...) 가 있다면 그 줄을 지우고 이걸 쓰세요.
+    tabs = st.tabs(["📈 주가지수 & 매크로", "💰 국채 금리", "💱 환율", "🔍 기술적 분석"])
     
-    with tab1:
+    # 2. 첫 번째 탭 (지수)
+    with tabs[0]:
         c1, c2, c3, c4 = st.columns(4)
         with c1: draw_card("🇰🇷 코스피", "^KS11")
         with c2: draw_card("🇺🇸 다우존스", "^DJI")
@@ -311,7 +313,8 @@ else:
         with c7: draw_card("😱 VIX", "^VIX")
         with c8: draw_card("🏭 구리", "HG=F")
 
-    with tab2:
+    # 3. 두 번째 탭 (국채)
+    with tabs[1]:
         col_kr, col_us = st.columns(2)
         with col_kr:
             st.markdown("##### 🇰🇷 한국 국채")
@@ -322,42 +325,41 @@ else:
             draw_card("미국 2년 금리 (선물)", "ZT=F")
             draw_card("미국 10년 금리 (지수)", "^TNX")
 
-    with tab3:
+    # 4. 세 번째 탭 (환율)
+    with tabs[2]:
         c1, c2, c3, c4 = st.columns(4)
         with c1: draw_card("🇰🇷 원/달러", "KRW=X")
         with c2: draw_card("🇨🇳 원/위안", "CALC_CNYKRW")
         with c3: draw_card("🇯🇵 원/엔 (100엔)", "JPYKRW=X")
         with c4: draw_card("🌎 달러 인덱스", "DX-Y.NYB")
 
-    # 🚀 여기가 새로 추가되는 탭입니다.
-    with tab4:
-        st.subheader("💡 실시간 기술적 분석 차트")
+    # 5. 네 번째 탭 (기술적 분석 - TradingView)
+    with tabs[3]:
+        st.subheader("🔍 실시간 상세 분석 (TradingView)")
         
-        # 선택 박스를 통해 차트 변경 가능
-        symbol_dict = {
+        # 분석 대상 설정
+        tv_symbols = {
             "원/달러 환율": "FX_IDC:USDKRW",
             "코스피 지수": "KRX:KOSPI",
-            "나스닥 100": "NASDAQ:QQQ",
             "S&P 500": "SPY",
+            "나스닥 100": "NASDAQ:QQQ",
             "비트코인": "BINANCE:BTCUSDT"
         }
         
-        target = st.selectbox("종목 선택", list(symbol_dict.keys()))
-        tv_symbol = symbol_dict[target]
+        selected_tv = st.selectbox("종목 선택", list(tv_symbols.keys()), key="tv_select")
+        target_symbol = tv_symbols[selected_tv]
 
-        # TradingView HTML 위젯
+        # HTML 컴포넌트 호출
         import streamlit.components.v1 as components
         
-        # RSI 지표가 포함된 설정
-        tv_html = f"""
+        tv_widget_html = f"""
         <div style="height:600px;">
-            <div id="tv_chart_container" style="height:100%;"></div>
+            <div id="tradingview_chart" style="height:100%;"></div>
             <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
             <script type="text/javascript">
             new TradingView.widget({{
-                "width": "100%",
-                "height": "100%",
-                "symbol": "{tv_symbol}",
+                "autosize": true,
+                "symbol": "{target_symbol}",
                 "interval": "D",
                 "timezone": "Asia/Seoul",
                 "theme": "dark",
@@ -367,13 +369,11 @@ else:
                 "enable_publishing": false,
                 "hide_side_toolbar": false,
                 "allow_symbol_change": true,
-                "studies": [
-                    "RSI@tv-basicstudies"
-                ],
-                "container_id": "tv_chart_container"
+                "studies": [ "RSI@tv-basicstudies" ],
+                "container_id": "tradingview_chart"
             }});
             </script>
         </div>
         """
-        components.html(tv_html, height=620)
+        components.html(tv_widget_html, height=620)
 
