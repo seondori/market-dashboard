@@ -5,4 +5,5 @@ pandas
 beautifulsoup4
 requests
 cloudscraper
-finance-datareader
+finance_datareader
+
