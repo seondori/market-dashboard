@@ -3,7 +3,7 @@ import yfinance as yf
 import plotly.graph_objects as go
 import pandas as pd
 import cloudscraper
-import FinanceDataReader as fdr
+import finance-datareader as fdr
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 import requests
@@ -170,4 +170,5 @@ else:
         with c2: draw_card("🇨🇳 원/위안", "CALC_CNYKRW")
         with c3: draw_card("🇯🇵 원/엔 (100엔)", "JPYKRW=X")
         with c4: draw_card("🌎 달러 인덱스", "DX-Y.NYB")
+
 
