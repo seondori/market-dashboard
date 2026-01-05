@@ -31,27 +31,53 @@ with st.sidebar:
     if st.button("🔄 새로고침"): st.cache_data.clear()
     period_option = st.selectbox("차트 기간", ("5일 (단기)", "1개월", "6개월", "1년"), index=0)
 
-# 4. 데이터 로딩 (간소화 버전)
-@st.cache_data(ttl=60)
+# 4. 데이터 로딩 (안정성 강화)
+@st.cache_data(ttl=300) # 차단 방지를 위해 캐시 시간을 5분으로 늘림
 def get_data(ticker, p, i):
     try:
         df = yf.download(ticker, period=p, interval=i, progress=False)
+        if df.empty:
+            return None
+        # 최신 yfinance 버전의 MultiIndex 대응
+        if isinstance(df.columns, pd.MultiIndex):
+            return df['Close'][ticker]
         return df['Close']
-    except: return None
+    except Exception as e:
+        return None
 
-# 5. 카드 그리기 함수
+# 5. 카드 그리기 함수 (ValueError 방지)
 def draw_card(name, ticker, p, i):
     series = get_data(ticker, p, i)
-    if series is not None and not series.empty:
-        val, prev = series.iloc[-1], series.iloc[-2]
-        delta = val - prev
-        pct = (delta / prev) * 100
-        color_class = "metric-delta-up" if delta >= 0 else "metric-delta-down"
+    
+    # 데이터가 정상적으로 수집되었는지 엄격히 확인
+    if series is not None and not series.empty and len(series) >= 2:
+        try:
+            # 값을 확실하게 float 숫자로 추출 (Series 방지)
+            val = float(series.iloc[-1])
+            prev = float(series.iloc[-2])
+            
+            delta = val - prev
+            pct = (delta / prev) * 100 if prev != 0 else 0
+            
+            # 숫자 비교이므로 이제 에러가 나지 않음
+            color_class = "metric-delta-up" if delta >= 0 else "metric-delta-down"
+            arrow = "▲" if delta >= 0 else "▼"
+            
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-title">{name}</div>
+                <div class="metric-value">{val:,.2f}</div>
+                <div class="{color_class}">{arrow} {abs(delta):.2f} ({pct:.2f}%)</div>
+            </div>""", unsafe_allow_html=True)
+        except Exception:
+            st.warning(f"{name} 데이터 계산 오류")
+    else:
+        # 데이터가 없을 때 앱이 꺼지는 대신 표시할 내용
         st.markdown(f"""
         <div class="metric-card">
             <div class="metric-title">{name}</div>
-            <div class="metric-value">{val:,.2f}</div>
-            <div class="{color_class}">{'▲' if delta >= 0 else '▼'} {abs(delta):.2f} ({pct:.2f}%)</div>
+            <div class="metric-value" style="color:gray; font-size:18px;">데이터 대기 중</div>
+            <div style="color:gray; font-size:12px;">(Rate Limit/시장 휴장)</div>
         </div>""", unsafe_allow_html=True)
 
 # ==========================================
@@ -115,3 +141,4 @@ with tabs[3]:
     </div>
     """
     components.html(tv_html, height=620)
+
