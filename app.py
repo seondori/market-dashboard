@@ -61,18 +61,42 @@ tickers_raw = ["^KS11", "^DJI", "^GSPC", "^IXIC", "CL=F", "GC=F", "^VIX", "HG=F"
 raw_data = get_yahoo_data(tickers_raw, p, i)
 
 # 카드 그리기 함수
-def draw_card(name, ticker):
-    try:
-        series = raw_data[ticker]['Close'].dropna()
-        val, prev = float(series.iloc[-1]), float(series.iloc[-2])
-        if "JPYKRW" in ticker: val, prev = val*100, prev*100
-        delta = val - prev
-        pct = (delta / prev) * 100
-        color = '#ff5252' if delta >= 0 else '#00e676'
-        st.markdown(f"""<div class="metric-card"><div class="metric-title">{name}</div><div class="metric-value">{val:,.2f}</div>
-        <div class="{'metric-delta-up' if delta >= 0 else 'metric-delta-down'}">{'▲' if delta >= 0 else '▼'} {abs(delta):.2f} ({pct:.2f}%)</div></div>""", unsafe_allow_html=True)
-    except: st.error(f"{name} 로드 실패")
+# 통합된 draw_card 함수 (이걸로 교체하세요)
+def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
+    # A. 한국 국채 처리
+    if is_korea_bond:
+        data = get_korea_bond_yield(ticker, etf_code)
+        if not data:
+            st.error(f"{name} 로드 실패")
+            return
+        val, delta, pct = data['current'], data['delta'], data['delta_pct']
+        unit = "%" if not data.get('is_fallback') else ""
+    
+    # B. 일반 지수/환율 처리
+    else:
+        try:
+            # 주가지수 등은 사이드바에서 설정한 p(기간), i(간격) 사용
+            # 전역 변수 p, i가 함수 밖에서 정의되어 있어야 합니다.
+            df = yf.download(ticker, period=p, interval=i, progress=False)
+            series = df['Close'].dropna()
+            if series.empty: return
+            val, prev = float(series.iloc[-1]), float(series.iloc[-2])
+            if "JPYKRW" in ticker: val, prev = val*100, prev*100
+            delta = val - prev
+            pct = (delta / prev) * 100
+            unit = ""
+        except:
+            st.error(f"{name} 로드 실패")
+            return
 
+    # 공통 렌더링
+    color_class = "metric-delta-up" if delta >= 0 else "metric-delta-down"
+    st.markdown(f"""
+    <div class="metric-card">
+        <div class="metric-title">{name}</div>
+        <div class="metric-value">{val:,.2f}{unit}</div>
+        <div class="{color_class}">{'▲' if delta >= 0 else '▼'} {abs(delta):.2f} ({pct:.2f}%)</div>
+    </div>""", unsafe_allow_html=True)
 # ==========================================
 # 🖥️ 메인 화면 (순서 변경 및 차트 크기 확장)
 # ==========================================
@@ -163,3 +187,4 @@ else:
         with c2: draw_card("🇨🇳 원/위안", "CALC_CNYKRW")
         with c3: draw_card("🇯🇵 원/엔 (100엔)", "JPYKRW=X")
         with c4: draw_card("🌎 달러 인덱스", "DX-Y.NYB")
+
