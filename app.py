@@ -312,7 +312,7 @@ else:
             "🛢️ WTI 원유": "TVC:USOIL"
         }
         
-    with tab2
+    with tab2:
         c1, c2, c3, c4 = st.columns(4)
         with c1: draw_card("🇰🇷 코스피", "^KS11")
         with c2: draw_card("🇺🇸 다우존스", "^DJI")
@@ -376,6 +376,7 @@ else:
         </div>
         """
         components.html(tradingview_script, height=620)
+
 
 
 
