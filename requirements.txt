@@ -2,9 +2,7 @@ streamlit
 yfinance
 plotly
 pandas
-beautifulsoup4
-requests
 cloudscraper
 finance-datareader
-
-
+beautifulsoup4
+requests
