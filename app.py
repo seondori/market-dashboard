@@ -300,38 +300,6 @@ else:
     tab1, tab2, tab3, tab4 = st.tabs(["📈 주가지수 & 매크로", "💰 국채 금리", "💱 환율", "🔍 기술적 분석"])
     
     with tab1:
-        c1, c2, c3, c4 = st.columns(4)
-        with c1: draw_card("🇰🇷 코스피", "^KS11")
-        with c2: draw_card("🇺🇸 다우존스", "^DJI")
-        with c3: draw_card("🇺🇸 S&P 500", "^GSPC")
-        with c4: draw_card("🇺🇸 나스닥", "^IXIC")
-        
-        c5, c6, c7, c8 = st.columns(4)
-        with c5: draw_card("🛢️ WTI 원유", "CL=F")
-        with c6: draw_card("👑 금", "GC=F")
-        with c7: draw_card("😱 VIX", "^VIX")
-        with c8: draw_card("🏭 구리", "HG=F")
-
-    with tab2:
-        col_kr, col_us = st.columns(2)
-        with col_kr:
-            st.markdown("##### 🇰🇷 한국 국채")
-            draw_card("한국 3년 국채", "IRr_GOV03Y", is_korea_bond=True, etf_code="114260.KS")
-            draw_card("한국 10년 국채", "IRr_GOV10Y", is_korea_bond=True, etf_code="148070.KS")
-        with col_us:
-            st.markdown("##### 🇺🇸 미국 국채")
-            draw_card("미국 2년 금리 (선물)", "ZT=F")
-            draw_card("미국 10년 금리 (지수)", "^TNX")
-
-    with tab3:
-        c1, c2, c3, c4 = st.columns(4)
-        with c1: draw_card("🇰🇷 원/달러", "KRW=X")
-        with c2: draw_card("🇨🇳 원/위안", "CALC_CNYKRW")
-        with c3: draw_card("🇯🇵 원/엔 (100엔)", "JPYKRW=X")
-        with c4: draw_card("🌎 달러 인덱스", "DX-Y.NYB")
-
-    # 🚀 추가된 부분: 기술적 분석 탭 전용
-    with tab4:
         st.subheader("💡 TradingView 실시간 차트 (RSI 포함)")
         
         # 사용자가 심볼을 직접 고를 수 있게 구성
@@ -344,6 +312,38 @@ else:
             "🛢️ WTI 원유": "TVC:USOIL"
         }
         
+    with tab2
+        c1, c2, c3, c4 = st.columns(4)
+        with c1: draw_card("🇰🇷 코스피", "^KS11")
+        with c2: draw_card("🇺🇸 다우존스", "^DJI")
+        with c3: draw_card("🇺🇸 S&P 500", "^GSPC")
+        with c4: draw_card("🇺🇸 나스닥", "^IXIC")
+        
+        c5, c6, c7, c8 = st.columns(4)
+        with c5: draw_card("🛢️ WTI 원유", "CL=F")
+        with c6: draw_card("👑 금", "GC=F")
+        with c7: draw_card("😱 VIX", "^VIX")
+        with c8: draw_card("🏭 구리", "HG=F")
+
+    with tab3:
+        col_kr, col_us = st.columns(2)
+        with col_kr:
+            st.markdown("##### 🇰🇷 한국 국채")
+            draw_card("한국 3년 국채", "IRr_GOV03Y", is_korea_bond=True, etf_code="114260.KS")
+            draw_card("한국 10년 국채", "IRr_GOV10Y", is_korea_bond=True, etf_code="148070.KS")
+        with col_us:
+            st.markdown("##### 🇺🇸 미국 국채")
+            draw_card("미국 2년 금리 (선물)", "ZT=F")
+            draw_card("미국 10년 금리 (지수)", "^TNX")
+
+    with tab4:
+        c1, c2, c3, c4 = st.columns(4)
+        with c1: draw_card("🇰🇷 원/달러", "KRW=X")
+        with c2: draw_card("🇨🇳 원/위안", "CALC_CNYKRW")
+        with c3: draw_card("🇯🇵 원/엔 (100엔)", "JPYKRW=X")
+        with c4: draw_card("🌎 달러 인덱스", "DX-Y.NYB")
+
+ 
         selected_name = st.selectbox("분석할 자산을 선택하세요", list(symbol_map.keys()))
         target_symbol = symbol_map[selected_name]
         
@@ -376,6 +376,7 @@ else:
         </div>
         """
         components.html(tradingview_script, height=620)
+
 
 
 
