@@ -3,7 +3,7 @@ import yfinance as yf
 import plotly.graph_objects as go
 import pandas as pd
 import cloudscraper
-import FinanceDataReader as fdr
+import finance-datareader as fdr
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 import requests
@@ -376,3 +376,4 @@ else:
         </div>
         """
         components.html(tradingview_script, height=620)
+
