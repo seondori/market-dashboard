@@ -6,3 +6,4 @@ beautifulsoup4
 requests
 cloudscraper
 finance-datareader
+FinanceDataReader
