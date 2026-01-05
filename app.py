@@ -329,3 +329,44 @@ else:
         with c2: draw_card("🇨🇳 원/위안", "CALC_CNYKRW")
         with c3: draw_card("🇯🇵 원/엔 (100엔)", "JPYKRW=X")
         with c4: draw_card("🌎 달러 인덱스", "DX-Y.NYB")
+
+
+import streamlit.components.v1 as components
+
+def draw_tradingview_chart(symbol):
+    # TradingView 위젯 설정 (RSI 포함)
+    tradingview_script = f"""
+    <div class="tradingview-widget-container" style="height:500px;">
+      <div id="tradingview_chart"></div>
+      <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+      <script type="text/javascript">
+      new TradingView.widget({{
+        "autosize": true,
+        "symbol": "{symbol}",
+        "interval": "D",
+        "timezone": "Asia/Seoul",
+        "theme": "dark",
+        "style": "1",
+        "locale": "kr",
+        "toolbar_bg": "#f1f3f6",
+        "enable_publishing": false,
+        "hide_side_toolbar": false,
+        "allow_symbol_change": true,
+        "details": true,
+        "hotlist": true,
+        "calendar": true,
+        "studies": [
+          "RSI@tv-basicstudies"
+        ],
+        "container_id": "tradingview_chart"
+      }});
+      </script>
+    </div>
+    """
+    components.html(tradingview_script, height=500)
+
+# 메인 화면에 적용 예시 (탭을 하나 더 만들거나 특정 위치에 배치)
+with tab1:
+    st.markdown("### 🔍 상세 기술적 분석 (TradingView)")
+    selected_market = st.selectbox("분석 대상 선택", ["FX_IDC:USDKRW", "KRX:KOSPI", "NASDAQ:AAPL", "TVC:GOLD"])
+    draw_tradingview_chart(selected_market)
