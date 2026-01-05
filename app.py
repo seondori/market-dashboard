@@ -289,14 +289,15 @@ def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
 
 
 # ==========================================
-# 🖥️ 메인 화면
+# 🖥️ 메인 화면 (수정본)
 # ==========================================
 st.title(f"📊 Seondori Market Dashboard ({period_option})")
 
 if raw_data is None:
     st.error("데이터 서버 연결 중...")
 else:
-    tab1, tab2, tab3 = st.tabs(["📈 주가지수 & 매크로", "💰 국채 금리", "💱 환율"])
+    # 탭 생성 (분석 탭 추가)
+    tab1, tab2, tab3, tab4 = st.tabs(["📈 주가지수 & 매크로", "💰 국채 금리", "💱 환율", "🔍 기술적 분석"])
     
     with tab1:
         c1, c2, c3, c4 = st.columns(4)
@@ -317,7 +318,6 @@ else:
             st.markdown("##### 🇰🇷 한국 국채")
             draw_card("한국 3년 국채", "IRr_GOV03Y", is_korea_bond=True, etf_code="114260.KS")
             draw_card("한국 10년 국채", "IRr_GOV10Y", is_korea_bond=True, etf_code="148070.KS")
-            
         with col_us:
             st.markdown("##### 🇺🇸 미국 국채")
             draw_card("미국 2년 금리 (선물)", "ZT=F")
@@ -330,43 +330,49 @@ else:
         with c3: draw_card("🇯🇵 원/엔 (100엔)", "JPYKRW=X")
         with c4: draw_card("🌎 달러 인덱스", "DX-Y.NYB")
 
-
-import streamlit.components.v1 as components
-
-def draw_tradingview_chart(symbol):
-    # TradingView 위젯 설정 (RSI 포함)
-    tradingview_script = f"""
-    <div class="tradingview-widget-container" style="height:500px;">
-      <div id="tradingview_chart"></div>
-      <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
-      <script type="text/javascript">
-      new TradingView.widget({{
-        "autosize": true,
-        "symbol": "{symbol}",
-        "interval": "D",
-        "timezone": "Asia/Seoul",
-        "theme": "dark",
-        "style": "1",
-        "locale": "kr",
-        "toolbar_bg": "#f1f3f6",
-        "enable_publishing": false,
-        "hide_side_toolbar": false,
-        "allow_symbol_change": true,
-        "details": true,
-        "hotlist": true,
-        "calendar": true,
-        "studies": [
-          "RSI@tv-basicstudies"
-        ],
-        "container_id": "tradingview_chart"
-      }});
-      </script>
-    </div>
-    """
-    components.html(tradingview_script, height=500)
-
-# 메인 화면에 적용 예시 (탭을 하나 더 만들거나 특정 위치에 배치)
-with tab1:
-    st.markdown("### 🔍 상세 기술적 분석 (TradingView)")
-    selected_market = st.selectbox("분석 대상 선택", ["FX_IDC:USDKRW", "KRX:KOSPI", "NASDAQ:AAPL", "TVC:GOLD"])
-    draw_tradingview_chart(selected_market)
+    # 🚀 추가된 부분: 기술적 분석 탭 전용
+    with tab4:
+        st.subheader("💡 TradingView 실시간 차트 (RSI 포함)")
+        
+        # 사용자가 심볼을 직접 고를 수 있게 구성
+        symbol_map = {
+            "🇰🇷 원/달러 환율": "FX_IDC:USDKRW",
+            "🇰🇷 코스피 지수": "KRX:KOSPI",
+            "🇺🇸 나스닥 100": "NASDAQ:QQQ",
+            "🇺🇸 S&P 500": "SPY",
+            "👑 금 선물": "TVC:GOLD",
+            "🛢️ WTI 원유": "TVC:USOIL"
+        }
+        
+        selected_name = st.selectbox("분석할 자산을 선택하세요", list(symbol_map.keys()))
+        target_symbol = symbol_map[selected_name]
+        
+        # 앞서 정의한 함수 호출 (반드시 위쪽에 정의되어 있어야 함)
+        import streamlit.components.v1 as components
+        
+        tradingview_script = f"""
+        <div class="tradingview-widget-container" style="height:600px;">
+          <div id="tradingview_chart" style="height:100%;"></div>
+          <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+          <script type="text/javascript">
+          new TradingView.widget({{
+            "autosize": true,
+            "symbol": "{target_symbol}",
+            "interval": "D",
+            "timezone": "Asia/Seoul",
+            "theme": "dark",
+            "style": "1",
+            "locale": "kr",
+            "toolbar_bg": "#f1f3f6",
+            "enable_publishing": false,
+            "hide_side_toolbar": false,
+            "allow_symbol_change": true,
+            "studies": [
+              "RSI@tv-basicstudies"
+            ],
+            "container_id": "tradingview_chart"
+          }});
+          </script>
+        </div>
+        """
+        components.html(tradingview_script, height=620)
