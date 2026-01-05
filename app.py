@@ -297,7 +297,7 @@ if raw_data is None:
     st.error("데이터 서버 연결 중...")
 else:
     # 탭 생성 (분석 탭 추가)
-    tab1, tab2, tab3, tab4 = st.tabs(["📈 주가지수 & 매크로", "💰 국채 금리", "💱 환율", "🔍 기술적 분석"])
+    tab1, tab2, tab3, tab4 = st.tabs(["🔍 Trading View", "📈 주가지수 ", "💰 국채 금리", "💱 환율"])
     
     with tab1:
         st.subheader("💡 TradingView 실시간 차트 (RSI 포함)")
@@ -376,6 +376,7 @@ else:
         with c2: draw_card("🇨🇳 원/위안", "CALC_CNYKRW")
         with c3: draw_card("🇯🇵 원/엔 (100엔)", "JPYKRW=X")
         with c4: draw_card("🌎 달러 인덱스", "DX-Y.NYB")
+
 
 
 
