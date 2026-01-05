@@ -287,16 +287,15 @@ def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
         )
         st.plotly_chart(fig, use_container_width=True, config={'staticPlot': True})
 
-
 # ==========================================
-# 🖥️ 메인 화면 (수정본)
+# 🖥️ 메인 화면 (이 부분을 통째로 교체하세요)
 # ==========================================
 st.title(f"📊 Seondori Market Dashboard ({period_option})")
 
 if raw_data is None:
     st.error("데이터 서버 연결 중...")
 else:
-    # 탭 생성 (분석 탭 추가)
+    # 1. 탭을 4개로 다시 정의합니다. (tab4 추가)
     tab1, tab2, tab3, tab4 = st.tabs(["📈 주가지수 & 매크로", "💰 국채 금리", "💱 환율", "🔍 기술적 분석"])
     
     with tab1:
@@ -330,49 +329,51 @@ else:
         with c3: draw_card("🇯🇵 원/엔 (100엔)", "JPYKRW=X")
         with c4: draw_card("🌎 달러 인덱스", "DX-Y.NYB")
 
-    # 🚀 추가된 부분: 기술적 분석 탭 전용
+    # 🚀 여기가 새로 추가되는 탭입니다.
     with tab4:
-        st.subheader("💡 TradingView 실시간 차트 (RSI 포함)")
+        st.subheader("💡 실시간 기술적 분석 차트")
         
-        # 사용자가 심볼을 직접 고를 수 있게 구성
-        symbol_map = {
-            "🇰🇷 원/달러 환율": "FX_IDC:USDKRW",
-            "🇰🇷 코스피 지수": "KRX:KOSPI",
-            "🇺🇸 나스닥 100": "NASDAQ:QQQ",
-            "🇺🇸 S&P 500": "SPY",
-            "👑 금 선물": "TVC:GOLD",
-            "🛢️ WTI 원유": "TVC:USOIL"
+        # 선택 박스를 통해 차트 변경 가능
+        symbol_dict = {
+            "원/달러 환율": "FX_IDC:USDKRW",
+            "코스피 지수": "KRX:KOSPI",
+            "나스닥 100": "NASDAQ:QQQ",
+            "S&P 500": "SPY",
+            "비트코인": "BINANCE:BTCUSDT"
         }
         
-        selected_name = st.selectbox("분석할 자산을 선택하세요", list(symbol_map.keys()))
-        target_symbol = symbol_map[selected_name]
-        
-        # 앞서 정의한 함수 호출 (반드시 위쪽에 정의되어 있어야 함)
+        target = st.selectbox("종목 선택", list(symbol_dict.keys()))
+        tv_symbol = symbol_dict[target]
+
+        # TradingView HTML 위젯
         import streamlit.components.v1 as components
         
-        tradingview_script = f"""
-        <div class="tradingview-widget-container" style="height:600px;">
-          <div id="tradingview_chart" style="height:100%;"></div>
-          <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
-          <script type="text/javascript">
-          new TradingView.widget({{
-            "autosize": true,
-            "symbol": "{target_symbol}",
-            "interval": "D",
-            "timezone": "Asia/Seoul",
-            "theme": "dark",
-            "style": "1",
-            "locale": "kr",
-            "toolbar_bg": "#f1f3f6",
-            "enable_publishing": false,
-            "hide_side_toolbar": false,
-            "allow_symbol_change": true,
-            "studies": [
-              "RSI@tv-basicstudies"
-            ],
-            "container_id": "tradingview_chart"
-          }});
-          </script>
+        # RSI 지표가 포함된 설정
+        tv_html = f"""
+        <div style="height:600px;">
+            <div id="tv_chart_container" style="height:100%;"></div>
+            <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+            <script type="text/javascript">
+            new TradingView.widget({{
+                "width": "100%",
+                "height": "100%",
+                "symbol": "{tv_symbol}",
+                "interval": "D",
+                "timezone": "Asia/Seoul",
+                "theme": "dark",
+                "style": "1",
+                "locale": "kr",
+                "toolbar_bg": "#f1f3f6",
+                "enable_publishing": false,
+                "hide_side_toolbar": false,
+                "allow_symbol_change": true,
+                "studies": [
+                    "RSI@tv-basicstudies"
+                ],
+                "container_id": "tv_chart_container"
+            }});
+            </script>
         </div>
         """
-        components.html(tradingview_script, height=620)
+        components.html(tv_html, height=620)
+
