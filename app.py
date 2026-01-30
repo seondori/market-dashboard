@@ -12,7 +12,7 @@ import json
 import os
 
 # 1. 페이지 설정
-st.set_page_config(page_title="Seondori.com", layout="wide", page_icon="📊")
+st.set_page_config(page_title="Seondori Market Dashboard", layout="wide", page_icon="📊")
 
 # 2. 스타일 설정 (상승=빨강, 하락=초록)
 st.markdown("""
@@ -69,7 +69,29 @@ with st.sidebar:
     st.header("⚙️ 설정")
     if st.button("🔄 새로고침"):
         st.cache_data.clear()
-    period_option = st.selectbox("차트 기간", ("5일", "1개월", "6개월", "1년"), index=0)
+    period_option = st.selectbox("차트 기간", ("5일 (단기)", "1개월", "6개월", "1년"), index=0)
+    
+    # 관리자 인증
+    st.markdown("---")
+    st.markdown("### 🔐 관리자 전용")
+    
+    if 'admin_authenticated' not in st.session_state:
+        st.session_state.admin_authenticated = False
+    
+    if not st.session_state.admin_authenticated:
+        admin_password = st.text_input("비밀번호", type="password", key="admin_pw")
+        if st.button("로그인"):
+            if admin_password == "admin123":
+                st.session_state.admin_authenticated = True
+                st.success("✅ 관리자 로그인 성공!")
+                st.rerun()
+            else:
+                st.error("❌ 비밀번호가 틀렸습니다.")
+    else:
+        st.success("✅ 관리자 모드")
+        if st.button("로그아웃"):
+            st.session_state.admin_authenticated = False
+            st.rerun()
 
 if "5일" in period_option: p, i = "5d", "30m"
 elif "1개월" in period_option: p, i = "1mo", "1d"
@@ -771,7 +793,7 @@ def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
 # ==========================================
 # 🖥️ 메인 화면 (수정본)
 # ==========================================
-st.title(f"📊 Seondori.com ({period_option})")
+st.title(f"📊 Seondori Market Dashboard ({period_option})")
 
 if raw_data is None:
     st.error("데이터 서버 연결 중...")
@@ -1143,52 +1165,77 @@ else:
                                     with col_info3:
                                         st.metric("변동", f"{price_change:+,}원", f"{price_change_pct:+.2f}%")
                                 
-                                # 그래프 생성 (모바일 반응형 개선)
+                                # 그래프 생성 (모바일 최적화)
                                 fig = go.Figure()
                                 
                                 # 가격 상승/하락 색상 결정
                                 line_color = '#ff5252' if prices[-1] >= prices[0] else '#00e676'
-                                fill_color = 'rgba(255,82,82,0.1)' if prices[-1] >= prices[0] else 'rgba(0,230,118,0.1)'
+                                fill_color = 'rgba(255,82,82,0.15)' if prices[-1] >= prices[0] else 'rgba(0,230,118,0.15)'
                                 
                                 fig.add_trace(go.Scatter(
                                     x=dates,
                                     y=prices,
                                     mode='lines+markers',
                                     name=selected_product['name'],
-                                    line=dict(color=line_color, width=3),
-                                    marker=dict(size=8, color=line_color),
+                                    line=dict(color=line_color, width=2.5),
+                                    marker=dict(
+                                        size=7, 
+                                        color=line_color,
+                                        line=dict(color='white', width=1)
+                                    ),
                                     fill='tozeroy',
                                     fillcolor=fill_color,
-                                    hovertemplate='<b>%{x}</b><br>가격: %{y:,}원<extra></extra>'
+                                    hovertemplate='<b>%{x}</b><br>가격: ₩%{y:,}<extra></extra>'
                                 ))
                                 
-                                # 모바일 반응형 레이아웃
+                                # Y축 범위 자동 조정 (패딩 추가)
+                                price_min = min(prices)
+                                price_max = max(prices)
+                                price_range = price_max - price_min
+                                y_padding = price_range * 0.1 if price_range > 0 else price_min * 0.1
+                                
+                                # 모바일 최적화 레이아웃
                                 fig.update_layout(
-                                    height=300,  # 모바일에서 더 적절한 높이
-                                    margin=dict(l=10, r=10, t=30, b=10),
+                                    autosize=True,
+                                    height=280,  # 모바일에 최적화된 높이
+                                    margin=dict(l=15, r=15, t=20, b=40),
                                     paper_bgcolor='rgba(0,0,0,0)',
-                                    plot_bgcolor='rgba(30,30,30,0.5)',
+                                    plot_bgcolor='rgba(30,30,30,0.8)',
                                     xaxis=dict(
-                                        title="날짜",
-                                        gridcolor='rgba(255,255,255,0.1)',
+                                        title="",  # 제목 제거로 공간 확보
+                                        gridcolor='rgba(255,255,255,0.08)',
                                         showgrid=True,
-                                        title_font=dict(size=12),
-                                        tickfont=dict(size=10)
+                                        tickfont=dict(size=9, color='#aaa'),
+                                        tickangle=-45,  # 날짜 각도 조정
+                                        tickmode='auto',
+                                        nticks=5  # 모바일에서 눈금 개수 제한
                                     ),
                                     yaxis=dict(
-                                        title="가격 (원)",
-                                        gridcolor='rgba(255,255,255,0.1)',
+                                        title="",  # 제목 제거로 공간 확보
+                                        gridcolor='rgba(255,255,255,0.08)',
                                         showgrid=True,
-                                        tickformat=',',
-                                        title_font=dict(size=12),
-                                        tickfont=dict(size=10)
+                                        tickformat=',.0f',
+                                        tickprefix='₩',
+                                        tickfont=dict(size=9, color='#aaa'),
+                                        range=[price_min - y_padding, price_max + y_padding]
                                     ),
                                     showlegend=False,
                                     hovermode="x unified",
-                                    font=dict(size=11)
+                                    font=dict(size=10, color='#fff'),
+                                    hoverlabel=dict(
+                                        bgcolor='rgba(30,30,30,0.95)',
+                                        font_size=11,
+                                        font_color='white'
+                                    )
                                 )
                                 
-                                st.plotly_chart(fig, use_container_width=True)
+                                # 반응형 설정
+                                config = {
+                                    'displayModeBar': False,  # 툴바 숨김 (모바일 공간 확보)
+                                    'responsive': True
+                                }
+                                
+                                st.plotly_chart(fig, use_container_width=True, config=config)
                                 
                                 # 상세 데이터 테이블
                                 with st.expander("📋 상세 가격 데이터"):
@@ -1233,30 +1280,6 @@ else:
             draw_card("미국 2년 금리 (선물)", "ZT=F")
             draw_card("미국 10년 금리 (지수)", "^TNX")
         st.subheader("💾 RAM 시세")
-        
-        # 관리자 인증
-        if 'admin_authenticated' not in st.session_state:
-            st.session_state.admin_authenticated = False
-        
-        # 사이드바에 관리자 로그인
-        with st.sidebar:
-            st.markdown("---")
-            st.markdown("### 🔐 관리자 전용")
-            if not st.session_state.admin_authenticated:
-                admin_password = st.text_input("비밀번호", type="password", key="admin_pw")
-                if st.button("로그인"):
-                    # 비밀번호: admin123 (실제 사용시 환경변수나 암호화 필요)
-                    if admin_password == "admin123":
-                        st.session_state.admin_authenticated = True
-                        st.success("✅ 관리자 로그인 성공!")
-                        st.rerun()
-                    else:
-                        st.error("❌ 비밀번호가 틀렸습니다.")
-            else:
-                st.success("✅ 관리자 모드")
-                if st.button("로그아웃"):
-                    st.session_state.admin_authenticated = False
-                    st.rerun()
         
         # 기간 선택
         col_period1, col_period2 = st.columns([3, 1])
@@ -1600,5 +1623,3 @@ else:
                 st.info("💡 위의 '가격 정보 업데이트' 섹션에서 가격을 입력해주세요.")
             else:
                 st.info("💡 관리자가 가격 정보를 업데이트하면 여기에 표시됩니다.")
-
-
