@@ -1225,31 +1225,55 @@ else:
                                     # 가격 변동이 없을 경우
                                     y_padding = price_min * 0.05
                                 
+                                # X축 날짜 표시 전략 (데이터 포인트 개수에 따라)
+                                num_points = len(dates)
+                                if num_points <= 7:
+                                    # 7일 이하: 모든 날짜 표시
+                                    dtick = None
+                                    tickmode = 'linear'
+                                    tickangle = -45
+                                elif num_points <= 15:
+                                    # 8-15일: 격일 표시
+                                    dtick = 'D2'  # 2일마다
+                                    tickmode = None
+                                    tickangle = -45
+                                elif num_points <= 31:
+                                    # 16-31일: 3일마다 표시 (약 10개 날짜)
+                                    dtick = 'D3'  # 3일마다
+                                    tickmode = None
+                                    tickangle = -45
+                                else:
+                                    # 32일 이상: 일주일마다
+                                    dtick = 'D7'
+                                    tickmode = None
+                                    tickangle = -45
+                                
                                 # 모바일 최적화 레이아웃
                                 fig.update_layout(
                                     autosize=True,
                                     height=280,  # 모바일에 최적화된 높이
-                                    margin=dict(l=15, r=15, t=20, b=40),
+                                    margin=dict(l=15, r=15, t=20, b=50),  # 하단 여백 증가 (날짜 표시)
                                     paper_bgcolor='rgba(0,0,0,0)',
                                     plot_bgcolor='rgba(30,30,30,0.8)',
                                     xaxis=dict(
-                                        title="",  # 제목 제거로 공간 확보
+                                        title="",
                                         gridcolor='rgba(255,255,255,0.08)',
                                         showgrid=True,
-                                        tickfont=dict(size=9, color='#aaa'),
-                                        tickangle=-45,  # 날짜 각도 조정
-                                        tickmode='auto',
-                                        nticks=6  # 최대 6개 눈금
+                                        tickfont=dict(size=8, color='#aaa'),
+                                        tickangle=tickangle,
+                                        tickmode=tickmode,
+                                        dtick=dtick,
+                                        tickformat='%m/%d'  # 월/일 형식
                                     ),
                                     yaxis=dict(
-                                        title="",  # 제목 제거로 공간 확보
+                                        title="",
                                         gridcolor='rgba(255,255,255,0.08)',
                                         showgrid=True,
                                         tickformat=',.0f',
                                         tickprefix='₩',
                                         tickfont=dict(size=9, color='#aaa'),
-                                        range=[price_min - y_padding, price_max + y_padding],  # 타이트한 범위
-                                        fixedrange=False  # 줌 허용
+                                        range=[price_min - y_padding, price_max + y_padding],
+                                        fixedrange=False
                                     ),
                                     showlegend=False,
                                     hovermode="x unified",
@@ -1263,7 +1287,7 @@ else:
                                 
                                 # 반응형 설정
                                 config = {
-                                    'displayModeBar': False,  # 툴바 숨김 (모바일 공간 확보)
+                                    'displayModeBar': False,
                                     'responsive': True
                                 }
                                 
