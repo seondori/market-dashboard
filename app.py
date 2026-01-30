@@ -8,9 +8,11 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 import requests
 import re
+import json
+import os
 
 # 1. 페이지 설정
-st.set_page_config(page_title="Seondori.com", layout="wide", page_icon="📊")
+st.set_page_config(page_title="Seondori Market Dashboard", layout="wide", page_icon="📊")
 
 # 2. 스타일 설정 (상승=빨강, 하락=초록)
 st.markdown("""
@@ -48,6 +50,66 @@ if "5일" in period_option: p, i = "5d", "30m"
 elif "1개월" in period_option: p, i = "1mo", "1d"
 elif "6개월" in period_option: p, i = "6mo", "1d"
 else: p, i = "1y", "1d"
+
+# ==========================================
+# 🚀 데이터 저장/불러오기 함수
+# ==========================================
+PRICE_DATA_FILE = "price_data.json"
+PRICE_HISTORY_FILE = "price_history.json"
+
+def save_price_data(prices):
+    """현재 가격 데이터 저장"""
+    with open(PRICE_DATA_FILE, 'w', encoding='utf-8') as f:
+        json.dump(prices, f, ensure_ascii=False, indent=2)
+
+def load_price_data():
+    """현재 가격 데이터 불러오기"""
+    if os.path.exists(PRICE_DATA_FILE):
+        with open(PRICE_DATA_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return {}
+
+def save_price_history(prices):
+    """가격 히스토리 저장 (날짜별)"""
+    history = load_price_history()
+    today = datetime.now().strftime('%Y-%m-%d')
+    
+    # 오늘 날짜로 데이터 추가
+    if today not in history:
+        history[today] = {}
+    
+    for category, items in prices.items():
+        if category not in history[today]:
+            history[today][category] = []
+        history[today][category] = items
+    
+    with open(PRICE_HISTORY_FILE, 'w', encoding='utf-8') as f:
+        json.dump(history, f, ensure_ascii=False, indent=2)
+
+def load_price_history():
+    """가격 히스토리 불러오기"""
+    if os.path.exists(PRICE_HISTORY_FILE):
+        with open(PRICE_HISTORY_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return {}
+
+def get_price_trend(product_name, days=30):
+    """특정 제품의 가격 추이 데이터 반환"""
+    history = load_price_history()
+    dates = sorted(history.keys())[-days:]  # 최근 N일
+    
+    price_trend = []
+    for date in dates:
+        for category, items in history[date].items():
+            for item in items:
+                if item['product'] == product_name:
+                    price_trend.append({
+                        'date': date,
+                        'price': item['price']
+                    })
+                    break
+    
+    return price_trend
 
 # ==========================================
 # 🚀 가격 파싱 함수
@@ -356,7 +418,7 @@ if raw_data is None:
     st.error("데이터 서버 연결 중...")
 else:
     # 탭 생성 (가격 정보 탭 추가)
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🔍 Trading View", "📈 주가지수", "💰 국채 금리", "💱 환율", "💻 부품 시세"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🔍 Trading View", "📈 주가지수", "💰 국채 금리", "💱 환율", "💾 RAM 시세"])
     
     with tab1:
         st.subheader("💡 TradingView 실시간 차트 (RSI 포함)")
@@ -437,33 +499,116 @@ else:
         with c4: draw_card("🌎 달러 인덱스", "DX-Y.NYB")
 
     with tab5:
-        st.subheader("💻 PC 부품 매입 시세")
-        st.info("💡 아래에 가격 정보를 붙여넣으면 자동으로 파싱되어 카테고리별로 정리됩니다.")
+        st.subheader("💾 RAM 및 PC 부품 매입 시세")
         
-        # 텍스트 입력 영역
-        price_input = st.text_area(
-            "가격 정보 입력 (예: 8-12.i9 10900KF - 170.000원)",
-            height=200,
-            placeholder="여기에 가격 정보를 붙여넣으세요..."
-        )
+        # 관리자 인증
+        if 'admin_authenticated' not in st.session_state:
+            st.session_state.admin_authenticated = False
         
-        if price_input:
-            # 가격 데이터 파싱
-            parsed_prices = parse_price_data(price_input)
-            
-            if parsed_prices:
-                # 카테고리별로 표시
-                categories_order = [
-                    "Intel CPU", "AMD CPU", "그래픽카드", 
-                    "DDR5 RAM", "DDR4 RAM", "DDR3 RAM",
-                    "메인보드", "SSD", "HDD", "기타"
-                ]
+        # 사이드바에 관리자 로그인
+        with st.sidebar:
+            st.markdown("---")
+            st.markdown("### 🔐 관리자 전용")
+            if not st.session_state.admin_authenticated:
+                admin_password = st.text_input("비밀번호", type="password", key="admin_pw")
+                if st.button("로그인"):
+                    # 비밀번호: admin123 (실제 사용시 환경변수나 암호화 필요)
+                    if admin_password == "admin123":
+                        st.session_state.admin_authenticated = True
+                        st.success("✅ 관리자 로그인 성공!")
+                        st.rerun()
+                    else:
+                        st.error("❌ 비밀번호가 틀렸습니다.")
+            else:
+                st.success("✅ 관리자 모드")
+                if st.button("로그아웃"):
+                    st.session_state.admin_authenticated = False
+                    st.rerun()
+        
+        # 기간 선택
+        col_period1, col_period2 = st.columns([3, 1])
+        with col_period1:
+            view_period = st.selectbox(
+                "시세 히스토리 기간",
+                ["최근 5일", "최근 1개월", "최근 6개월", "전체"],
+                key="ram_period"
+            )
+        
+        # 기간에 따른 일수 계산
+        if "5일" in view_period:
+            days = 5
+        elif "1개월" in view_period:
+            days = 30
+        elif "6개월" in view_period:
+            days = 180
+        else:
+            days = 365 * 10  # 전체
+        
+        # 관리자 전용: 가격 업데이트
+        if st.session_state.admin_authenticated:
+            with st.expander("📝 가격 정보 업데이트 (관리자 전용)", expanded=False):
+                price_input = st.text_area(
+                    "가격 정보 입력",
+                    height=200,
+                    placeholder="예: 8-12.i9 10900KF - 170.000원",
+                    key="price_input"
+                )
                 
-                for category in categories_order:
-                    if category in parsed_prices and parsed_prices[category]:
-                        with st.expander(f"📦 {category} ({len(parsed_prices[category])}개)", expanded=True):
+                col_btn1, col_btn2 = st.columns(2)
+                with col_btn1:
+                    if st.button("💾 저장", type="primary"):
+                        if price_input:
+                            parsed_prices = parse_price_data(price_input)
+                            if parsed_prices:
+                                save_price_data(parsed_prices)
+                                save_price_history(parsed_prices)
+                                st.success(f"✅ 가격 정보가 저장되었습니다! ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})")
+                                st.rerun()
+                            else:
+                                st.error("❌ 파싱 가능한 가격 정보가 없습니다.")
+                        else:
+                            st.warning("⚠️ 가격 정보를 입력해주세요.")
+                
+                with col_btn2:
+                    if st.button("🗑️ 전체 삭제"):
+                        if os.path.exists(PRICE_DATA_FILE):
+                            os.remove(PRICE_DATA_FILE)
+                        if os.path.exists(PRICE_HISTORY_FILE):
+                            os.remove(PRICE_HISTORY_FILE)
+                        st.success("✅ 모든 데이터가 삭제되었습니다.")
+                        st.rerun()
+        
+        # 저장된 가격 정보 불러오기
+        current_prices = load_price_data()
+        
+        if current_prices:
+            # 마지막 업데이트 시간 표시
+            if os.path.exists(PRICE_DATA_FILE):
+                update_time = datetime.fromtimestamp(os.path.getmtime(PRICE_DATA_FILE))
+                st.info(f"📅 마지막 업데이트: {update_time.strftime('%Y년 %m월 %d일 %H:%M:%S')}")
+            
+            # 카테고리별로 표시
+            categories_order = [
+                "Intel CPU", "AMD CPU", "그래픽카드", 
+                "DDR5 RAM", "DDR4 RAM", "DDR3 RAM",
+                "메인보드", "SSD", "HDD", "기타"
+            ]
+            
+            # 검색 기능
+            search_query = st.text_input("🔍 제품 검색", placeholder="제품명 입력...")
+            
+            for category in categories_order:
+                if category in current_prices and current_prices[category]:
+                    items = current_prices[category]
+                    
+                    # 검색 필터링
+                    if search_query:
+                        items = [item for item in items if search_query.lower() in item['product'].lower()]
+                    
+                    if items:
+                        with st.expander(f"📦 {category} ({len(items)}개)", expanded=True):
                             # 데이터프레임으로 변환
-                            df = pd.DataFrame(parsed_prices[category])
+                            df = pd.DataFrame(items)
                             df = df.sort_values('price', ascending=False)
                             
                             # 표 표시
@@ -484,20 +629,47 @@ else:
                                 st.metric("최저가", f"{df['price'].min():,}원")
                             with col3:
                                 st.metric("평균가", f"{int(df['price'].mean()):,}원")
-            else:
-                st.warning("가격 정보를 찾을 수 없습니다. 형식을 확인해주세요.")
+                            
+                            # 가격 추이 차트 (대표 제품 3개)
+                            st.markdown("##### 📊 가격 추이 (상위 3개 제품)")
+                            top_products = df.head(3)
+                            
+                            fig = go.Figure()
+                            
+                            for idx, row in top_products.iterrows():
+                                product_name = row['product']
+                                trend_data = get_price_trend(product_name, days)
+                                
+                                if trend_data:
+                                    dates = [item['date'] for item in trend_data]
+                                    prices = [item['price'] for item in trend_data]
+                                    
+                                    fig.add_trace(go.Scatter(
+                                        x=dates,
+                                        y=prices,
+                                        mode='lines+markers',
+                                        name=product_name,
+                                        line=dict(width=2),
+                                        marker=dict(size=6)
+                                    ))
+                            
+                            if fig.data:
+                                fig.update_layout(
+                                    height=300,
+                                    margin=dict(l=0, r=0, t=30, b=0),
+                                    paper_bgcolor='rgba(0,0,0,0)',
+                                    plot_bgcolor='rgba(30,30,30,0.5)',
+                                    xaxis=dict(title="날짜", gridcolor='rgba(255,255,255,0.1)'),
+                                    yaxis=dict(title="가격 (원)", gridcolor='rgba(255,255,255,0.1)'),
+                                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                                    hovermode="x unified"
+                                )
+                                st.plotly_chart(fig, use_container_width=True)
+                            else:
+                                st.info("📈 히스토리 데이터가 충분하지 않습니다. (최소 2일 이상의 데이터 필요)")
         else:
-            # 샘플 데이터 표시
-            st.markdown("""
-            ### 사용 방법
-            1. 위의 텍스트 영역에 가격 정보를 붙여넣으세요
-            2. 자동으로 파싱되어 카테고리별로 정리됩니다
-            3. 각 카테고리를 펼쳐서 상세 정보를 확인하세요
-            
-            #### 입력 형식 예시:
-            ```
-            8-12.i9 10900KF - 170.000원
-            14-1.삼성 16G PC4 25600 [3200mhz] - 138.000원
-            25-14.RTX 2060 - 120.000원
-            ```
-            """)
+            st.warning("⚠️ 아직 등록된 가격 정보가 없습니다.")
+            if st.session_state.admin_authenticated:
+                st.info("💡 위의 '가격 정보 업데이트' 섹션에서 가격을 입력해주세요.")
+            else:
+                st.info("💡 관리자가 가격 정보를 업데이트하면 여기에 표시됩니다.")
