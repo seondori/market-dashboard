@@ -12,7 +12,7 @@ import json
 import os
 
 # 1. 페이지 설정
-st.set_page_config(page_title="Seondori.com", layout="wide", page_icon="📊")
+st.set_page_config(page_title="Seondori Market Dashboard", layout="wide", page_icon="📊")
 
 # 2. 스타일 설정 (상승=빨강, 하락=초록)
 st.markdown("""
@@ -793,7 +793,7 @@ def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
 # ==========================================
 # 🖥️ 메인 화면 (수정본)
 # ==========================================
-st.title(f"📊 Seondori Market Dashboard ({period_option})")
+st.title(f"📊 Seondori.com ({period_option})")
 
 if raw_data is None:
     st.error("데이터 서버 연결 중...")
@@ -877,6 +877,7 @@ else:
             view_period = st.selectbox(
                 "시세 히스토리 기간",
                 ["최근 5일", "최근 15일", "최근 1개월", "최근 6개월", "전체"],
+                index=2,  # 기본값: 최근 1개월
                 key="ram_period"
             )
         
