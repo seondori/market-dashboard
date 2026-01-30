@@ -771,7 +771,7 @@ def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
 # ==========================================
 # 🖥️ 메인 화면 (수정본)
 # ==========================================
-st.title(f"📊 Seondori Market Dashboard ({period_option})")
+st.title(f"📊 Seondori.com ({period_option})")
 
 if raw_data is None:
     st.error("데이터 서버 연결 중...")
@@ -1600,4 +1600,5 @@ else:
                 st.info("💡 위의 '가격 정보 업데이트' 섹션에서 가격을 입력해주세요.")
             else:
                 st.info("💡 관리자가 가격 정보를 업데이트하면 여기에 표시됩니다.")
+
 
