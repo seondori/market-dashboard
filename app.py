@@ -12,7 +12,7 @@ import json
 import os
 
 # 1. 페이지 설정
-st.set_page_config(page_title="Seondori Market Dashboard", layout="wide", page_icon="📊")
+st.set_page_config(page_title="Seondori.com", layout="wide", page_icon="📊")
 
 # 2. 스타일 설정 (상승=빨강, 하락=초록)
 st.markdown("""
@@ -833,7 +833,7 @@ else:
         with c4: draw_card("🌎 달러 인덱스", "DX-Y.NYB")
 
     with tab5:
-        st.subheader("💾 RAM 및 PC 부품 매입 시세")
+        st.subheader("💾 RAM 시세")
         
         # 관리자 인증
         if 'admin_authenticated' not in st.session_state:
@@ -1201,3 +1201,4 @@ else:
                 st.info("💡 위의 '가격 정보 업데이트' 섹션에서 가격을 입력해주세요.")
             else:
                 st.info("💡 관리자가 가격 정보를 업데이트하면 여기에 표시됩니다.")
+
