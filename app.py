@@ -937,41 +937,118 @@ else:
                             with col3:
                                 st.metric("평균가", f"{int(df['price'].mean()):,}원")
                             
-                            # 가격 추이 차트 (대표 제품 3개)
-                            st.markdown("##### 📊 가격 추이 (상위 3개 제품)")
-                            top_products = df.head(3)
+                            # 가격 추이 차트 - 제품 선택 방식
+                            st.markdown("##### 📊 개별 제품 가격 추이")
                             
-                            fig = go.Figure()
-                            
-                            for idx, row in top_products.iterrows():
+                            # 히스토리가 있는 제품만 필터링
+                            products_with_history = []
+                            for idx, row in df.iterrows():
                                 product_name = row['product']
                                 trend_data = get_price_trend(product_name, days)
-                                
-                                if trend_data:
-                                    dates = [item['date'] for item in trend_data]
-                                    prices = [item['price'] for item in trend_data]
-                                    
-                                    fig.add_trace(go.Scatter(
-                                        x=dates,
-                                        y=prices,
-                                        mode='lines+markers',
-                                        name=product_name,
-                                        line=dict(width=2),
-                                        marker=dict(size=6)
-                                    ))
+                                if trend_data and len(trend_data) >= 2:
+                                    products_with_history.append({
+                                        'name': product_name,
+                                        'current_price': row['price'],
+                                        'trend_data': trend_data
+                                    })
                             
-                            if fig.data:
+                            if products_with_history:
+                                # 제품 선택 드롭다운
+                                product_options = [f"{p['name']} (현재가: {p['current_price']:,}원)" 
+                                                 for p in products_with_history]
+                                
+                                selected_idx = st.selectbox(
+                                    "제품 선택",
+                                    range(len(product_options)),
+                                    format_func=lambda x: product_options[x],
+                                    key=f"product_select_{category}"
+                                )
+                                
+                                # 선택된 제품의 가격 추이 그래프
+                                selected_product = products_with_history[selected_idx]
+                                trend_data = selected_product['trend_data']
+                                
+                                dates = [item['date'] for item in trend_data]
+                                prices = [item['price'] for item in trend_data]
+                                
+                                # 가격 변동 계산
+                                if len(prices) >= 2:
+                                    price_change = prices[-1] - prices[0]
+                                    price_change_pct = (price_change / prices[0]) * 100 if prices[0] != 0 else 0
+                                    
+                                    # 변동 정보 표시
+                                    col_info1, col_info2, col_info3 = st.columns(3)
+                                    with col_info1:
+                                        st.metric("시작가", f"{prices[0]:,}원")
+                                    with col_info2:
+                                        st.metric("현재가", f"{prices[-1]:,}원")
+                                    with col_info3:
+                                        st.metric("변동", f"{price_change:+,}원", f"{price_change_pct:+.2f}%")
+                                
+                                # 그래프 생성
+                                fig = go.Figure()
+                                
+                                # 가격 상승/하락 색상 결정
+                                line_color = '#ff5252' if prices[-1] >= prices[0] else '#00e676'
+                                fill_color = 'rgba(255,82,82,0.1)' if prices[-1] >= prices[0] else 'rgba(0,230,118,0.1)'
+                                
+                                fig.add_trace(go.Scatter(
+                                    x=dates,
+                                    y=prices,
+                                    mode='lines+markers',
+                                    name=selected_product['name'],
+                                    line=dict(color=line_color, width=3),
+                                    marker=dict(size=8, color=line_color),
+                                    fill='tozeroy',
+                                    fillcolor=fill_color,
+                                    hovertemplate='<b>%{x}</b><br>가격: %{y:,}원<extra></extra>'
+                                ))
+                                
                                 fig.update_layout(
-                                    height=300,
+                                    height=350,
                                     margin=dict(l=0, r=0, t=30, b=0),
                                     paper_bgcolor='rgba(0,0,0,0)',
                                     plot_bgcolor='rgba(30,30,30,0.5)',
-                                    xaxis=dict(title="날짜", gridcolor='rgba(255,255,255,0.1)'),
-                                    yaxis=dict(title="가격 (원)", gridcolor='rgba(255,255,255,0.1)'),
-                                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                                    xaxis=dict(
+                                        title="날짜",
+                                        gridcolor='rgba(255,255,255,0.1)',
+                                        showgrid=True
+                                    ),
+                                    yaxis=dict(
+                                        title="가격 (원)",
+                                        gridcolor='rgba(255,255,255,0.1)',
+                                        showgrid=True,
+                                        tickformat=','
+                                    ),
+                                    showlegend=False,
                                     hovermode="x unified"
                                 )
+                                
                                 st.plotly_chart(fig, use_container_width=True)
+                                
+                                # 상세 데이터 테이블
+                                with st.expander("📋 상세 가격 데이터"):
+                                    trend_df = pd.DataFrame(trend_data)
+                                    trend_df['price_formatted'] = trend_df['price'].apply(lambda x: f"{x:,}원")
+                                    
+                                    # 전일 대비 변동 계산
+                                    trend_df['change'] = trend_df['price'].diff()
+                                    trend_df['change_pct'] = (trend_df['price'].pct_change() * 100).round(2)
+                                    trend_df['change_formatted'] = trend_df.apply(
+                                        lambda row: f"{row['change']:+,.0f}원 ({row['change_pct']:+.2f}%)" 
+                                        if pd.notna(row['change']) else "-",
+                                        axis=1
+                                    )
+                                    
+                                    st.dataframe(
+                                        trend_df[['date', 'price_formatted', 'change_formatted']].rename(columns={
+                                            'date': '날짜',
+                                            'price_formatted': '가격',
+                                            'change_formatted': '전일 대비'
+                                        }),
+                                        hide_index=True,
+                                        use_container_width=True
+                                    )
                             else:
                                 st.info("📈 히스토리 데이터가 충분하지 않습니다. (최소 2일 이상의 데이터 필요)")
         else:
