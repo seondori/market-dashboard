@@ -117,44 +117,132 @@ def get_price_trend(product_name, days=30):
 def parse_price_data(price_text):
     """
     텍스트에서 CPU/RAM 가격 정보를 파싱합니다.
-    예: "8-12.i9 10900KF - 170.000원" -> {"name": "i9 10900KF", "price": 170000}
+    다양한 형식 지원:
+    - "8-12.i9 10900KF - 170.000원"
+    - "삼성 D5 8G- 5600 [44800] - 110,000원"
+    - "삼성 32G PC4 25600 [3200mhz] - 235.000원"
+    - "14-2.삼성 16G PC4 21300[2666mhz] - 105,000원 , 19200[2400mhz] - 100.000원"
     """
     prices = {}
     
-    # 정규표현식으로 가격 정보 추출
-    # 패턴: 번호. 제품명 - 가격원
-    pattern = r'[\d\-\.]+\s*([A-Za-z0-9\s\-]+?)\s*-\s*([\d,\.]+)\s*원'
-    
     for line in price_text.split('\n'):
-        match = re.search(pattern, line)
-        if match:
-            product_name = match.group(1).strip()
-            price_str = match.group(2).replace(',', '').replace('.', '')
+        # 빈 줄이나 주석 건너뛰기
+        if not line.strip() or line.strip().startswith('*') or line.strip().startswith('('):
+            continue
+        
+        # 여러 제품이 한 줄에 있는 경우 처리 (쉼표로 구분)
+        if ' , ' in line:
+            parts = line.split(' , ')
+            
+            # 첫 번째 파트에서 기본 정보 추출
+            base_info = extract_base_info(parts[0])
+            
+            for idx, part in enumerate(parts):
+                if idx == 0:
+                    parse_single_line(part, line, prices, None)
+                else:
+                    # 이후 파트는 기본 정보를 상속
+                    parse_single_line(part, line, prices, base_info)
+        else:
+            parse_single_line(line, line, prices, None)
+    
+    return prices
+
+def extract_base_info(first_part):
+    """첫 번째 파트에서 브랜드, 용량, 타입 등 기본 정보 추출"""
+    info = {}
+    
+    # 삼성 체크
+    if '삼성' in first_part:
+        info['brand'] = '삼성'
+    
+    # DDR 타입 체크
+    if 'D5' in first_part or 'DDR5' in first_part:
+        info['ddr_type'] = 'DDR5'
+    elif 'PC4' in first_part or 'DDR4' in first_part:
+        info['ddr_type'] = 'DDR4'
+    elif 'PC3' in first_part or 'DDR3' in first_part:
+        info['ddr_type'] = 'DDR3'
+    
+    # 용량 체크
+    capacity_match = re.search(r'(\d+G)', first_part)
+    if capacity_match:
+        info['capacity'] = capacity_match.group(1)
+    
+    return info
+
+def parse_single_line(part, original_line, prices, base_info=None):
+    """단일 제품 라인 파싱"""
+    # 패턴 1: DDR5 형식 - "삼성 D5 8G- 5600 [44800] - 110,000원"
+    pattern1 = r'삼성\s*D5\s*(\d+G)[^\d]*([\d]+)\s*[\[\(]?[\d,\.]*[\]\)]?\s*-\s*([\d,\.]+)\s*원'
+    match1 = re.search(pattern1, part, re.IGNORECASE)
+    if match1:
+        capacity = match1.group(1)
+        speed = match1.group(2)
+        price_str = match1.group(3).replace(',', '').replace('.', '')
+        
+        try:
+            price = int(price_str)
+            product_name = f"삼성 DDR5 {capacity} {speed}MHz"
+            
+            if "DDR5 RAM" not in prices:
+                prices["DDR5 RAM"] = []
+            
+            prices["DDR5 RAM"].append({
+                'product': product_name,
+                'price': price,
+                'price_formatted': f"{price:,}원"
+            })
+            return
+        except ValueError:
+            pass
+    
+    # 패턴 2: DDR4 형식 - "삼성 32G PC4 25600 [3200mhz] - 235.000원"
+    pattern2 = r'삼성\s*(\d+G)\s*PC4\s*([\d]+)\s*[\[\(]?[\d,\.]*[Mm]?[Hh]?[Zz]?[\]\)]?\s*-\s*([\d,\.]+)\s*원'
+    match2 = re.search(pattern2, part, re.IGNORECASE)
+    if match2:
+        capacity = match2.group(1)
+        speed = match2.group(2)
+        price_str = match2.group(3).replace(',', '').replace('.', '')
+        
+        try:
+            price = int(price_str)
+            product_name = f"삼성 DDR4 {capacity} PC4-{speed}"
+            
+            if "DDR4 RAM" not in prices:
+                prices["DDR4 RAM"] = []
+            
+            prices["DDR4 RAM"].append({
+                'product': product_name,
+                'price': price,
+                'price_formatted': f"{price:,}원"
+            })
+            return
+        except ValueError:
+            pass
+    
+    # 패턴 2-1: DDR4/DDR5 추가 속도 (쉼표 뒤) - "19200[2400mhz] - 100.000원"
+    # base_info가 있으면 이전 정보를 활용
+    if base_info and base_info.get('ddr_type') in ['DDR4', 'DDR5']:
+        pattern2_1 = r'([\d]+)\s*[\[\(]?[\d,\.]*[Mm]?[Hh]?[Zz]?[\]\)]?\s*-\s*([\d,\.]+)\s*원'
+        match2_1 = re.search(pattern2_1, part)
+        if match2_1:
+            speed = match2_1.group(1)
+            price_str = match2_1.group(2).replace(',', '').replace('.', '')
             
             try:
                 price = int(price_str)
+                capacity = base_info.get('capacity', '')
+                ddr_type = base_info.get('ddr_type', '')
                 
-                # 카테고리 분류
-                category = "기타"
-                if 'DDR5' in line or 'D5' in line:
+                if ddr_type == 'DDR5':
+                    product_name = f"삼성 DDR5 {capacity} {speed}MHz"
                     category = "DDR5 RAM"
-                elif 'DDR4' in line or 'D4' in line:
+                elif ddr_type == 'DDR4':
+                    product_name = f"삼성 DDR4 {capacity} PC4-{speed}"
                     category = "DDR4 RAM"
-                elif 'DDR3' in line or 'D3' in line:
-                    category = "DDR3 RAM"
-                elif any(cpu in line for cpu in ['i3', 'i5', 'i7', 'i9', 'G3', 'G4', 'G5', 'G6']):
-                    if '세대' in line or '레이크' in line or '샌디' in line or '아이비' in line or '하스웰' in line:
-                        category = "Intel CPU"
-                elif 'R3' in line or 'R5' in line or 'R7' in line or 'R9' in line:
-                    category = "AMD CPU"
-                elif 'GTX' in line or 'RTX' in line or 'RX' in line:
-                    category = "그래픽카드"
-                elif 'SSD' in line or 'M.2' in line:
-                    category = "SSD"
-                elif 'HDD' in line or '하드' in line or 'TB' in line or 'TB' in product_name:
-                    category = "HDD"
-                elif any(board in line for board in ['H61', 'H67', 'B75', 'Z77', 'H81', 'B85', 'Z97', 'B150', 'B250', 'B360', 'Z370', 'Z390', 'B460', 'Z490', 'B560', 'Z590', 'B660', 'Z690', 'B760', 'Z790', 'A320', 'B350', 'B450', 'B550', 'B650', 'X670']):
-                    category = "메인보드"
+                else:
+                    return
                 
                 if category not in prices:
                     prices[category] = []
@@ -164,10 +252,158 @@ def parse_price_data(price_text):
                     'price': price,
                     'price_formatted': f"{price:,}원"
                 })
+                return
             except ValueError:
-                continue
+                pass
     
-    return prices
+    # 패턴 3: DDR3 형식 - "삼성 8G PC3 12800 - 3,000원"
+    pattern3 = r'삼성\s*(\d+G)\s*PC3\s*([\d]+)\s*-\s*([\d,\.]+)\s*원'
+    match3 = re.search(pattern3, part, re.IGNORECASE)
+    if match3:
+        capacity = match3.group(1)
+        speed = match3.group(2)
+        price_str = match3.group(3).replace(',', '').replace('.', '')
+        
+        try:
+            price = int(price_str)
+            product_name = f"삼성 DDR3 {capacity} PC3-{speed}"
+            
+            if "DDR3 RAM" not in prices:
+                prices["DDR3 RAM"] = []
+            
+            prices["DDR3 RAM"].append({
+                'product': product_name,
+                'price': price,
+                'price_formatted': f"{price:,}원"
+            })
+            return
+        except ValueError:
+            pass
+    
+    # 패턴 4: CPU 형식 - "8-12.i9 10900KF - 170.000원"
+    pattern4 = r'[\d\-\.]+\s*([iR][3579]\s*[\-\s]?[\d]+[A-Z]*[A-Z]?)\s*-\s*([\d,\.]+)\s*원'
+    match4 = re.search(pattern4, part, re.IGNORECASE)
+    if match4:
+        cpu_name = match4.group(1).strip()
+        price_str = match4.group(2).replace(',', '').replace('.', '')
+        
+        try:
+            price = int(price_str)
+            
+            # Intel vs AMD 구분
+            if cpu_name.lower().startswith('i'):
+                category = "Intel CPU"
+                product_name = cpu_name
+            elif cpu_name.lower().startswith('r'):
+                category = "AMD CPU"
+                product_name = cpu_name
+            else:
+                return
+            
+            if category not in prices:
+                prices[category] = []
+            
+            prices[category].append({
+                'product': product_name,
+                'price': price,
+                'price_formatted': f"{price:,}원"
+            })
+            return
+        except ValueError:
+            pass
+    
+    # 패턴 5: 그래픽카드 - "RTX 2060 - 120.000원"
+    pattern5 = r'([GR]TX|RX)\s*([\d]+\s*[A-Z]*)\s*-\s*([\d,\.]+)\s*원'
+    match5 = re.search(pattern5, part, re.IGNORECASE)
+    if match5:
+        gpu_type = match5.group(1)
+        gpu_model = match5.group(2).strip()
+        price_str = match5.group(3).replace(',', '').replace('.', '')
+        
+        try:
+            price = int(price_str)
+            product_name = f"{gpu_type} {gpu_model}"
+            
+            if "그래픽카드" not in prices:
+                prices["그래픽카드"] = []
+            
+            prices["그래픽카드"].append({
+                'product': product_name,
+                'price': price,
+                'price_formatted': f"{price:,}원"
+            })
+            return
+        except ValueError:
+            pass
+    
+    # 패턴 6: 메인보드 - "B660 칩셋 45.000원"
+    pattern6 = r'([HBZAX][\d]+)\s*칩[셋]?\s*-?\s*([\d,\.]+)\s*원'
+    match6 = re.search(pattern6, part, re.IGNORECASE)
+    if match6:
+        chipset = match6.group(1)
+        price_str = match6.group(2).replace(',', '').replace('.', '')
+        
+        try:
+            price = int(price_str)
+            product_name = f"{chipset} 칩셋"
+            
+            if "메인보드" not in prices:
+                prices["메인보드"] = []
+            
+            prices["메인보드"].append({
+                'product': product_name,
+                'price': price,
+                'price_formatted': f"{price:,}원"
+            })
+            return
+        except ValueError:
+            pass
+    
+    # 패턴 7: SSD - "삼성 500G,512G - 40.000원"
+    pattern7 = r'삼성\s*([\d]+G[,/]?[\d]*G?)\s*-\s*([\d,\.]+)\s*원'
+    match7 = re.search(pattern7, part, re.IGNORECASE)
+    if match7 and 'SSD' in original_line:
+        capacity = match7.group(1).split(',')[0].split('/')[0]
+        price_str = match7.group(2).replace(',', '').replace('.', '')
+        
+        try:
+            price = int(price_str)
+            product_name = f"삼성 SSD {capacity}"
+            
+            if "SSD" not in prices:
+                prices["SSD"] = []
+            
+            prices["SSD"].append({
+                'product': product_name,
+                'price': price,
+                'price_formatted': f"{price:,}원"
+            })
+            return
+        except ValueError:
+            pass
+    
+    # 패턴 8: HDD - "1테라,1TB - 6.000원"
+    pattern8 = r'([\d]+)\s*[테테라]*[,/]?([\d]*)\s*TB\s*-\s*([\d,\.]+)\s*원'
+    match8 = re.search(pattern8, part, re.IGNORECASE)
+    if match8:
+        capacity = match8.group(1)
+        price_str = match8.group(3).replace(',', '').replace('.', '')
+        
+        try:
+            price = int(price_str)
+            product_name = f"{capacity}TB HDD"
+            
+            if "HDD" not in prices:
+                prices["HDD"] = []
+            
+            prices["HDD"].append({
+                'product': product_name,
+                'price': price,
+                'price_formatted': f"{price:,}원"
+            })
+            return
+        except ValueError:
+            pass
 
 # ==========================================
 # 🚀 핵심 기술: 국채 금리 4중 확보 전략 (개선)
