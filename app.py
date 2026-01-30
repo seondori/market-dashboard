@@ -12,7 +12,7 @@ import json
 import os
 
 # 1. 페이지 설정
-st.set_page_config(page_title="Seondori Market Dashboard", layout="wide", page_icon="📊")
+st.set_page_config(page_title="Seondori.com", layout="wide", page_icon="📊")
 
 # 2. 스타일 설정 (상승=빨강, 하락=초록)
 st.markdown("""
@@ -1017,6 +1017,51 @@ else:
                 if history:
                     dates = sorted(history.keys(), reverse=True)
                     st.write(f"총 **{len(dates)}일**의 데이터가 저장되어 있습니다.")
+                    
+                    # 데이터 백업 다운로드
+                    st.markdown("##### 💾 데이터 백업")
+                    col_backup1, col_backup2 = st.columns(2)
+                    
+                    with col_backup1:
+                        # JSON 파일 다운로드
+                        backup_data = {
+                            'price_data': load_price_data(),
+                            'price_history': history
+                        }
+                        backup_json = json.dumps(backup_data, ensure_ascii=False, indent=2)
+                        st.download_button(
+                            label="📥 백업 다운로드 (JSON)",
+                            data=backup_json,
+                            file_name=f"ram_price_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                            mime="application/json",
+                            help="데이터를 안전하게 백업하세요"
+                        )
+                    
+                    with col_backup2:
+                        # 백업 복원
+                        uploaded_backup = st.file_uploader(
+                            "📤 백업 복원",
+                            type=['json'],
+                            help="이전에 다운로드한 백업 파일을 업로드하세요"
+                        )
+                        if uploaded_backup is not None:
+                            try:
+                                backup_content = json.loads(uploaded_backup.read().decode('utf-8'))
+                                
+                                if 'price_data' in backup_content:
+                                    with open(PRICE_DATA_FILE, 'w', encoding='utf-8') as f:
+                                        json.dump(backup_content['price_data'], f, ensure_ascii=False, indent=2)
+                                
+                                if 'price_history' in backup_content:
+                                    with open(PRICE_HISTORY_FILE, 'w', encoding='utf-8') as f:
+                                        json.dump(backup_content['price_history'], f, ensure_ascii=False, indent=2)
+                                
+                                st.success("✅ 백업이 복원되었습니다!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ 백업 복원 실패: {e}")
+                    
+                    st.markdown("---")
                     
                     # 날짜 목록 표시
                     date_df = pd.DataFrame({
