@@ -52,6 +52,63 @@ elif "6개월" in period_option: p, i = "6mo", "1d"
 else: p, i = "1y", "1d"
 
 # ==========================================
+# 🚀 RAM 섹션 자동 추출 함수
+# ==========================================
+def extract_ram_section(full_text):
+    """
+    네이버 카페 게시글에서 RAM 관련 섹션만 추출
+    시작: "RAM 메모리(삼성기준)"
+    종료: "17.SSD 삼성 정품 기준" 또는 "SSD" 섹션 시작
+    """
+    # 시작 패턴들
+    start_patterns = [
+        "RAM 메모리(삼성기준)",
+        "RAM 메모리",
+        "16-1.데스크탑용 DDR5",
+        "13.데스크탑 DDR3",
+        "14.데스크탑 DDR4",
+        "15.노트북용 DDR3",
+        "16.노트북용 DDR4"
+    ]
+    
+    # 종료 패턴들
+    end_patterns = [
+        "17.SSD",
+        "20-3. 삼성 M.2",
+        "0-1.삼성 120G,128G",
+        "[모든 데이터는 포맷",
+        "SSD 삼성 정품 기준"
+    ]
+    
+    # 시작 위치 찾기
+    start_pos = -1
+    for pattern in start_patterns:
+        pos = full_text.find(pattern)
+        if pos != -1:
+            if start_pos == -1 or pos < start_pos:
+                start_pos = pos
+    
+    if start_pos == -1:
+        return None
+    
+    # 종료 위치 찾기
+    end_pos = len(full_text)
+    for pattern in end_patterns:
+        pos = full_text.find(pattern, start_pos)
+        if pos != -1:
+            if pos < end_pos:
+                end_pos = pos
+    
+    # 추출
+    extracted = full_text[start_pos:end_pos].strip()
+    
+    # 최소 길이 체크 (너무 짧으면 잘못된 추출)
+    if len(extracted) < 100:
+        return None
+    
+    return extracted
+
+# ==========================================
 # 🚀 데이터 저장/불러오기 함수
 # ==========================================
 PRICE_DATA_FILE = "price_data.json"
@@ -122,12 +179,22 @@ def parse_price_data(price_text):
     - "삼성 D5 8G- 5600 [44800] - 110,000원"
     - "삼성 32G PC4 25600 [3200mhz] - 235.000원"
     - "14-2.삼성 16G PC4 21300[2666mhz] - 105,000원 , 19200[2400mhz] - 100.000원"
+    데스크탑/노트북 구분 지원
     """
     prices = {}
+    current_ram_type = None  # 'desktop' or 'laptop'
     
     for line in price_text.split('\n'):
         # 빈 줄이나 주석 건너뛰기
         if not line.strip() or line.strip().startswith('*') or line.strip().startswith('('):
+            continue
+        
+        # 데스크탑/노트북 섹션 감지
+        if '데스크탑용' in line or '데스크탑 DDR' in line:
+            current_ram_type = 'desktop'
+            continue
+        elif '노트북용' in line or '노트북 DDR' in line:
+            current_ram_type = 'laptop'
             continue
         
         # 여러 제품이 한 줄에 있는 경우 처리 (쉼표로 구분)
@@ -136,15 +203,16 @@ def parse_price_data(price_text):
             
             # 첫 번째 파트에서 기본 정보 추출
             base_info = extract_base_info(parts[0])
+            base_info['ram_type'] = current_ram_type  # 데스크탑/노트북 정보 추가
             
             for idx, part in enumerate(parts):
                 if idx == 0:
-                    parse_single_line(part, line, prices, None)
+                    parse_single_line(part, line, prices, None, current_ram_type)
                 else:
                     # 이후 파트는 기본 정보를 상속
-                    parse_single_line(part, line, prices, base_info)
+                    parse_single_line(part, line, prices, base_info, current_ram_type)
         else:
-            parse_single_line(line, line, prices, None)
+            parse_single_line(line, line, prices, None, current_ram_type)
     
     return prices
 
@@ -171,7 +239,7 @@ def extract_base_info(first_part):
     
     return info
 
-def parse_single_line(part, original_line, prices, base_info=None):
+def parse_single_line(part, original_line, prices, base_info=None, ram_type=None):
     """단일 제품 라인 파싱"""
     # 패턴 1: DDR5 형식 - "삼성 D5 8G- 5600 [44800] - 110,000원"
     pattern1 = r'삼성\s*D5\s*(\d+G)[^\d]*([\d]+)\s*[\[\(]?[\d,\.]*[\]\)]?\s*-\s*([\d,\.]+)\s*원'
@@ -183,12 +251,19 @@ def parse_single_line(part, original_line, prices, base_info=None):
         
         try:
             price = int(price_str)
-            product_name = f"삼성 DDR5 {capacity} {speed}MHz"
             
-            if "DDR5 RAM" not in prices:
-                prices["DDR5 RAM"] = []
+            # 데스크탑/노트북 구분
+            if ram_type == 'laptop':
+                product_name = f"삼성 DDR5 {capacity} {speed}MHz (노트북)"
+                category = "DDR5 RAM (노트북)"
+            else:
+                product_name = f"삼성 DDR5 {capacity} {speed}MHz"
+                category = "DDR5 RAM (데스크탑)"
             
-            prices["DDR5 RAM"].append({
+            if category not in prices:
+                prices[category] = []
+            
+            prices[category].append({
                 'product': product_name,
                 'price': price,
                 'price_formatted': f"{price:,}원"
@@ -207,12 +282,19 @@ def parse_single_line(part, original_line, prices, base_info=None):
         
         try:
             price = int(price_str)
-            product_name = f"삼성 DDR4 {capacity} PC4-{speed}"
             
-            if "DDR4 RAM" not in prices:
-                prices["DDR4 RAM"] = []
+            # 데스크탑/노트북 구분
+            if ram_type == 'laptop':
+                product_name = f"삼성 DDR4 {capacity} PC4-{speed} (노트북)"
+                category = "DDR4 RAM (노트북)"
+            else:
+                product_name = f"삼성 DDR4 {capacity} PC4-{speed}"
+                category = "DDR4 RAM (데스크탑)"
             
-            prices["DDR4 RAM"].append({
+            if category not in prices:
+                prices[category] = []
+            
+            prices[category].append({
                 'product': product_name,
                 'price': price,
                 'price_formatted': f"{price:,}원"
@@ -234,13 +316,22 @@ def parse_single_line(part, original_line, prices, base_info=None):
                 price = int(price_str)
                 capacity = base_info.get('capacity', '')
                 ddr_type = base_info.get('ddr_type', '')
+                current_ram_type = base_info.get('ram_type')
                 
                 if ddr_type == 'DDR5':
-                    product_name = f"삼성 DDR5 {capacity} {speed}MHz"
-                    category = "DDR5 RAM"
+                    if current_ram_type == 'laptop':
+                        product_name = f"삼성 DDR5 {capacity} {speed}MHz (노트북)"
+                        category = "DDR5 RAM (노트북)"
+                    else:
+                        product_name = f"삼성 DDR5 {capacity} {speed}MHz"
+                        category = "DDR5 RAM (데스크탑)"
                 elif ddr_type == 'DDR4':
-                    product_name = f"삼성 DDR4 {capacity} PC4-{speed}"
-                    category = "DDR4 RAM"
+                    if current_ram_type == 'laptop':
+                        product_name = f"삼성 DDR4 {capacity} PC4-{speed} (노트북)"
+                        category = "DDR4 RAM (노트북)"
+                    else:
+                        product_name = f"삼성 DDR4 {capacity} PC4-{speed}"
+                        category = "DDR4 RAM (데스크탑)"
                 else:
                     return
                 
@@ -266,12 +357,19 @@ def parse_single_line(part, original_line, prices, base_info=None):
         
         try:
             price = int(price_str)
-            product_name = f"삼성 DDR3 {capacity} PC3-{speed}"
             
-            if "DDR3 RAM" not in prices:
-                prices["DDR3 RAM"] = []
+            # 데스크탑/노트북 구분
+            if ram_type == 'laptop':
+                product_name = f"삼성 DDR3 {capacity} PC3-{speed} (노트북)"
+                category = "DDR3 RAM (노트북)"
+            else:
+                product_name = f"삼성 DDR3 {capacity} PC3-{speed}"
+                category = "DDR3 RAM (데스크탑)"
             
-            prices["DDR3 RAM"].append({
+            if category not in prices:
+                prices[category] = []
+            
+            prices[category].append({
                 'product': product_name,
                 'price': price,
                 'price_formatted': f"{price:,}원"
@@ -648,7 +746,7 @@ def draw_card(name, ticker, is_korea_bond=False, etf_code=None):
 # ==========================================
 # 🖥️ 메인 화면 (수정본)
 # ==========================================
-st.title(f"📊 Seondori.com ({period_option})")
+st.title(f"📊 Seondori Market Dashboard ({period_option})")
 
 if raw_data is None:
     st.error("데이터 서버 연결 중...")
@@ -735,7 +833,7 @@ else:
         with c4: draw_card("🌎 달러 인덱스", "DX-Y.NYB")
 
     with tab5:
-        st.subheader("💾 RAM 시세")
+        st.subheader("💾 RAM 및 PC 부품 매입 시세")
         
         # 관리자 인증
         if 'admin_authenticated' not in st.session_state:
@@ -797,16 +895,69 @@ else:
                 with col_date2:
                     st.info(f"선택된 날짜: **{input_date.strftime('%Y년 %m월 %d일')}**")
                 
+                st.markdown("##### 💡 입력 방법")
+                st.info("""
+                **네이버 카페에서 복사하기:**
+                1. 게시글 전체를 복사 (Ctrl+A, Ctrl+C)
+                2. 아래 입력창에 붙여넣기 (Ctrl+V)
+                3. '💾 자동 추출 및 저장' 클릭
+                
+                → RAM 관련 섹션만 자동으로 추출됩니다!
+                """)
+                
                 price_input = st.text_area(
-                    "가격 정보 입력",
+                    "가격 정보 입력 (게시글 전체를 붙여넣으세요)",
                     height=200,
-                    placeholder="예: 8-12.i9 10900KF - 170.000원\n14-1.삼성 16G PC4 25600 - 138.000원",
+                    placeholder="네이버 카페 게시글 전체 내용을 붙여넣으세요...",
                     key="price_input"
                 )
                 
                 col_btn1, col_btn2, col_btn3 = st.columns(3)
                 with col_btn1:
-                    if st.button("💾 저장 (선택 날짜)", type="primary"):
+                    if st.button("💾 자동 추출 및 저장", type="primary"):
+                        if price_input:
+                            # RAM 섹션 자동 추출
+                            extracted_text = extract_ram_section(price_input)
+                            
+                            if extracted_text:
+                                st.success(f"✅ RAM 섹션 추출 완료! ({len(extracted_text)} 글자)")
+                                
+                                with st.expander("📋 추출된 내용 미리보기", expanded=True):
+                                    st.text_area("추출된 RAM 가격 정보", extracted_text, height=150, disabled=True)
+                                
+                                # 파싱 시도
+                                parsed_prices = parse_price_data(extracted_text)
+                                if parsed_prices:
+                                    # 선택한 날짜로 저장
+                                    selected_date = input_date.strftime('%Y-%m-%d')
+                                    
+                                    # 히스토리에 저장
+                                    history = load_price_history()
+                                    if selected_date not in history:
+                                        history[selected_date] = {}
+                                    
+                                    for category, items in parsed_prices.items():
+                                        history[selected_date][category] = items
+                                    
+                                    with open(PRICE_HISTORY_FILE, 'w', encoding='utf-8') as f:
+                                        json.dump(history, f, ensure_ascii=False, indent=2)
+                                    
+                                    # 오늘 날짜면 현재 데이터로도 저장
+                                    if selected_date == datetime.now().strftime('%Y-%m-%d'):
+                                        save_price_data(parsed_prices)
+                                    
+                                    total_items = sum(len(items) for items in parsed_prices.values())
+                                    st.success(f"✅ {selected_date} 가격 정보가 저장되었습니다! (총 {total_items}개 제품)")
+                                    st.rerun()
+                                else:
+                                    st.error("❌ 파싱 가능한 가격 정보가 없습니다.")
+                            else:
+                                st.warning("⚠️ RAM 섹션을 찾을 수 없습니다. 게시글 전체를 복사했는지 확인해주세요.")
+                        else:
+                            st.warning("⚠️ 가격 정보를 입력해주세요.")
+                
+                with col_btn2:
+                    if st.button("📋 수동 입력"):
                         if price_input:
                             parsed_prices = parse_price_data(price_input)
                             if parsed_prices:
@@ -834,15 +985,6 @@ else:
                                 st.error("❌ 파싱 가능한 가격 정보가 없습니다.")
                         else:
                             st.warning("⚠️ 가격 정보를 입력해주세요.")
-                
-                with col_btn2:
-                    if st.button("📋 미리보기"):
-                        if price_input:
-                            parsed_prices = parse_price_data(price_input)
-                            if parsed_prices:
-                                st.json(parsed_prices)
-                            else:
-                                st.warning("파싱된 데이터가 없습니다.")
                 
                 with col_btn3:
                     if st.button("🗑️ 전체 삭제"):
@@ -897,7 +1039,9 @@ else:
             # 카테고리별로 표시
             categories_order = [
                 "Intel CPU", "AMD CPU", "그래픽카드", 
-                "DDR5 RAM", "DDR4 RAM", "DDR3 RAM",
+                "DDR5 RAM (데스크탑)", "DDR5 RAM (노트북)",
+                "DDR4 RAM (데스크탑)", "DDR4 RAM (노트북)",
+                "DDR3 RAM (데스크탑)", "DDR3 RAM (노트북)",
                 "메인보드", "SSD", "HDD", "기타"
             ]
             
@@ -1057,4 +1201,3 @@ else:
                 st.info("💡 위의 '가격 정보 업데이트' 섹션에서 가격을 입력해주세요.")
             else:
                 st.info("💡 관리자가 가격 정보를 업데이트하면 여기에 표시됩니다.")
-
