@@ -547,22 +547,52 @@ else:
         # 관리자 전용: 가격 업데이트
         if st.session_state.admin_authenticated:
             with st.expander("📝 가격 정보 업데이트 (관리자 전용)", expanded=False):
+                st.markdown("##### 📅 데이터 입력 날짜 선택")
+                
+                col_date1, col_date2 = st.columns(2)
+                with col_date1:
+                    input_date = st.date_input(
+                        "날짜",
+                        value=datetime.now(),
+                        max_value=datetime.now(),
+                        help="과거 데이터를 입력하려면 날짜를 선택하세요"
+                    )
+                
+                with col_date2:
+                    st.info(f"선택된 날짜: **{input_date.strftime('%Y년 %m월 %d일')}**")
+                
                 price_input = st.text_area(
                     "가격 정보 입력",
                     height=200,
-                    placeholder="예: 8-12.i9 10900KF - 170.000원",
+                    placeholder="예: 8-12.i9 10900KF - 170.000원\n14-1.삼성 16G PC4 25600 - 138.000원",
                     key="price_input"
                 )
                 
-                col_btn1, col_btn2 = st.columns(2)
+                col_btn1, col_btn2, col_btn3 = st.columns(3)
                 with col_btn1:
-                    if st.button("💾 저장", type="primary"):
+                    if st.button("💾 저장 (선택 날짜)", type="primary"):
                         if price_input:
                             parsed_prices = parse_price_data(price_input)
                             if parsed_prices:
-                                save_price_data(parsed_prices)
-                                save_price_history(parsed_prices)
-                                st.success(f"✅ 가격 정보가 저장되었습니다! ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')})")
+                                # 선택한 날짜로 저장
+                                selected_date = input_date.strftime('%Y-%m-%d')
+                                
+                                # 히스토리에 저장
+                                history = load_price_history()
+                                if selected_date not in history:
+                                    history[selected_date] = {}
+                                
+                                for category, items in parsed_prices.items():
+                                    history[selected_date][category] = items
+                                
+                                with open(PRICE_HISTORY_FILE, 'w', encoding='utf-8') as f:
+                                    json.dump(history, f, ensure_ascii=False, indent=2)
+                                
+                                # 오늘 날짜면 현재 데이터로도 저장
+                                if selected_date == datetime.now().strftime('%Y-%m-%d'):
+                                    save_price_data(parsed_prices)
+                                
+                                st.success(f"✅ {selected_date} 가격 정보가 저장되었습니다!")
                                 st.rerun()
                             else:
                                 st.error("❌ 파싱 가능한 가격 정보가 없습니다.")
@@ -570,6 +600,15 @@ else:
                             st.warning("⚠️ 가격 정보를 입력해주세요.")
                 
                 with col_btn2:
+                    if st.button("📋 미리보기"):
+                        if price_input:
+                            parsed_prices = parse_price_data(price_input)
+                            if parsed_prices:
+                                st.json(parsed_prices)
+                            else:
+                                st.warning("파싱된 데이터가 없습니다.")
+                
+                with col_btn3:
                     if st.button("🗑️ 전체 삭제"):
                         if os.path.exists(PRICE_DATA_FILE):
                             os.remove(PRICE_DATA_FILE)
@@ -577,6 +616,38 @@ else:
                             os.remove(PRICE_HISTORY_FILE)
                         st.success("✅ 모든 데이터가 삭제되었습니다.")
                         st.rerun()
+                
+                # 히스토리 관리
+                st.markdown("---")
+                st.markdown("##### 📊 저장된 히스토리")
+                history = load_price_history()
+                if history:
+                    dates = sorted(history.keys(), reverse=True)
+                    st.write(f"총 **{len(dates)}일**의 데이터가 저장되어 있습니다.")
+                    
+                    # 날짜 목록 표시
+                    date_df = pd.DataFrame({
+                        '날짜': dates,
+                        '카테고리 수': [len(history[d]) for d in dates],
+                        '총 제품 수': [sum(len(items) for items in history[d].values()) for d in dates]
+                    })
+                    st.dataframe(date_df, hide_index=True, use_container_width=True)
+                    
+                    # 특정 날짜 삭제
+                    st.markdown("##### 🗑️ 특정 날짜 데이터 삭제")
+                    col_del1, col_del2 = st.columns([3, 1])
+                    with col_del1:
+                        date_to_delete = st.selectbox("삭제할 날짜 선택", dates)
+                    with col_del2:
+                        st.write("")  # 간격 조정
+                        if st.button("삭제", key="delete_specific_date"):
+                            del history[date_to_delete]
+                            with open(PRICE_HISTORY_FILE, 'w', encoding='utf-8') as f:
+                                json.dump(history, f, ensure_ascii=False, indent=2)
+                            st.success(f"✅ {date_to_delete} 데이터가 삭제되었습니다.")
+                            st.rerun()
+                else:
+                    st.info("아직 저장된 히스토리가 없습니다.")
         
         # 저장된 가격 정보 불러오기
         current_prices = load_price_data()
