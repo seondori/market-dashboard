@@ -12,7 +12,7 @@ import json
 import os
 
 # 1. 페이지 설정
-st.set_page_config(page_title="Seondori Market Dashboard", layout="wide", page_icon="📊")
+st.set_page_config(page_title="Seondori.com", layout="wide", page_icon="📊")
 
 # 2. 스타일 설정 (상승=빨강, 하락=초록)
 st.markdown("""
@@ -69,7 +69,7 @@ with st.sidebar:
     st.header("⚙️ 설정")
     if st.button("🔄 새로고침"):
         st.cache_data.clear()
-    period_option = st.selectbox("차트 기간", ("5일 (단기)", "1개월", "6개월", "1년"), index=0)
+    period_option = st.selectbox("차트 기간", ("5일", "1개월", "6개월", "1년"), index=0)
     
     # 관리자 인증
     st.markdown("---")
@@ -871,42 +871,20 @@ else:
     with tab4:
         st.subheader("💾 RAM 시세")
         
-        # 관리자 인증
-        if 'admin_authenticated' not in st.session_state:
-            st.session_state.admin_authenticated = False
-        
-        # 사이드바에 관리자 로그인
-        with st.sidebar:
-            st.markdown("---")
-            st.markdown("### 🔐 관리자 전용")
-            if not st.session_state.admin_authenticated:
-                admin_password = st.text_input("비밀번호", type="password", key="admin_pw")
-                if st.button("로그인"):
-                    # 비밀번호: admin123 (실제 사용시 환경변수나 암호화 필요)
-                    if admin_password == "admin123":
-                        st.session_state.admin_authenticated = True
-                        st.success("✅ 관리자 로그인 성공!")
-                        st.rerun()
-                    else:
-                        st.error("❌ 비밀번호가 틀렸습니다.")
-            else:
-                st.success("✅ 관리자 모드")
-                if st.button("로그아웃"):
-                    st.session_state.admin_authenticated = False
-                    st.rerun()
-        
         # 기간 선택
         col_period1, col_period2 = st.columns([3, 1])
         with col_period1:
             view_period = st.selectbox(
                 "시세 히스토리 기간",
-                ["최근 5일", "최근 1개월", "최근 6개월", "전체"],
+                ["최근 5일", "최근 15일", "최근 1개월", "최근 6개월", "전체"],
                 key="ram_period"
             )
         
         # 기간에 따른 일수 계산
         if "5일" in view_period:
             days = 5
+        elif "15일" in view_period:
+            days = 15
         elif "1개월" in view_period:
             days = 30
         elif "6개월" in view_period:
@@ -1165,7 +1143,7 @@ else:
                                     with col_info3:
                                         st.metric("변동", f"{price_change:+,}원", f"{price_change_pct:+.2f}%")
                                 
-                                # 그래프 생성 (모바일 최적화)
+                                # 그래프 생성 (모바일 최적화 + 등락폭 강조)
                                 fig = go.Figure()
                                 
                                 # 가격 상승/하락 색상 결정
@@ -1188,11 +1166,18 @@ else:
                                     hovertemplate='<b>%{x}</b><br>가격: ₩%{y:,}<extra></extra>'
                                 ))
                                 
-                                # Y축 범위 자동 조정 (패딩 추가)
+                                # Y축 범위 타이트하게 조정 (등락폭 강조)
                                 price_min = min(prices)
                                 price_max = max(prices)
                                 price_range = price_max - price_min
-                                y_padding = price_range * 0.1 if price_range > 0 else price_min * 0.1
+                                
+                                # 등락폭이 작을 때는 패딩을 작게, 클 때는 조금만
+                                if price_range > 0:
+                                    # 패딩을 3%로 축소하여 등락폭이 더 크게 보이도록
+                                    y_padding = price_range * 0.03
+                                else:
+                                    # 가격 변동이 없을 경우
+                                    y_padding = price_min * 0.05
                                 
                                 # 모바일 최적화 레이아웃
                                 fig.update_layout(
@@ -1208,7 +1193,7 @@ else:
                                         tickfont=dict(size=9, color='#aaa'),
                                         tickangle=-45,  # 날짜 각도 조정
                                         tickmode='auto',
-                                        nticks=5  # 모바일에서 눈금 개수 제한
+                                        nticks=6  # 최대 6개 눈금
                                     ),
                                     yaxis=dict(
                                         title="",  # 제목 제거로 공간 확보
@@ -1217,7 +1202,8 @@ else:
                                         tickformat=',.0f',
                                         tickprefix='₩',
                                         tickfont=dict(size=9, color='#aaa'),
-                                        range=[price_min - y_padding, price_max + y_padding]
+                                        range=[price_min - y_padding, price_max + y_padding],  # 타이트한 범위
+                                        fixedrange=False  # 줌 허용
                                     ),
                                     showlegend=False,
                                     hovermode="x unified",
@@ -1279,347 +1265,3 @@ else:
             st.markdown("##### 🇺🇸 미국 국채")
             draw_card("미국 2년 금리 (선물)", "ZT=F")
             draw_card("미국 10년 금리 (지수)", "^TNX")
-        st.subheader("💾 RAM 시세")
-        
-        # 기간 선택
-        col_period1, col_period2 = st.columns([3, 1])
-        with col_period1:
-            view_period = st.selectbox(
-                "시세 히스토리 기간",
-                ["최근 5일", "최근 1개월", "최근 6개월", "전체"],
-                key="ram_period"
-            )
-        
-        # 기간에 따른 일수 계산
-        if "5일" in view_period:
-            days = 5
-        elif "1개월" in view_period:
-            days = 30
-        elif "6개월" in view_period:
-            days = 180
-        else:
-            days = 365 * 10  # 전체
-        
-        # 관리자 전용: 가격 업데이트
-        if st.session_state.admin_authenticated:
-            with st.expander("📝 가격 정보 업데이트 (관리자 전용)", expanded=False):
-                st.markdown("##### 📅 데이터 입력 날짜 선택")
-                
-                col_date1, col_date2 = st.columns(2)
-                with col_date1:
-                    input_date = st.date_input(
-                        "날짜",
-                        value=datetime.now(),
-                        max_value=datetime.now(),
-                        help="과거 데이터를 입력하려면 날짜를 선택하세요"
-                    )
-                
-                with col_date2:
-                    st.info(f"선택된 날짜: **{input_date.strftime('%Y년 %m월 %d일')}**")
-                
-                st.markdown("##### 💡 입력 방법")
-                st.info("""
-                **네이버 카페에서 복사하기:**
-                1. 게시글 전체를 복사 (Ctrl+A, Ctrl+C)
-                2. 아래 입력창에 붙여넣기 (Ctrl+V)
-                3. '💾 자동 추출 및 저장' 클릭
-                
-                → RAM 관련 섹션만 자동으로 추출됩니다!
-                """)
-                
-                price_input = st.text_area(
-                    "가격 정보 입력 (게시글 전체를 붙여넣으세요)",
-                    height=200,
-                    placeholder="네이버 카페 게시글 전체 내용을 붙여넣으세요...",
-                    key="price_input"
-                )
-                
-                col_btn1, col_btn2, col_btn3 = st.columns(3)
-                with col_btn1:
-                    if st.button("💾 자동 추출 및 저장", type="primary"):
-                        if price_input:
-                            # RAM 섹션 자동 추출
-                            extracted_text = extract_ram_section(price_input)
-                            
-                            if extracted_text:
-                                st.success(f"✅ RAM 섹션 추출 완료! ({len(extracted_text)} 글자)")
-                                
-                                with st.expander("📋 추출된 내용 미리보기", expanded=True):
-                                    st.text_area("추출된 RAM 가격 정보", extracted_text, height=150, disabled=True)
-                                
-                                # 파싱 시도
-                                parsed_prices = parse_price_data(extracted_text)
-                                if parsed_prices:
-                                    # 선택한 날짜로 저장
-                                    selected_date = input_date.strftime('%Y-%m-%d')
-                                    
-                                    # 히스토리에 저장
-                                    history = load_price_history()
-                                    if selected_date not in history:
-                                        history[selected_date] = {}
-                                    
-                                    for category, items in parsed_prices.items():
-                                        history[selected_date][category] = items
-                                    
-                                    with open(PRICE_HISTORY_FILE, 'w', encoding='utf-8') as f:
-                                        json.dump(history, f, ensure_ascii=False, indent=2)
-                                    
-                                    # 오늘 날짜면 현재 데이터로도 저장
-                                    if selected_date == datetime.now().strftime('%Y-%m-%d'):
-                                        save_price_data(parsed_prices)
-                                    
-                                    total_items = sum(len(items) for items in parsed_prices.values())
-                                    st.success(f"✅ {selected_date} 가격 정보가 저장되었습니다! (총 {total_items}개 제품)")
-                                    st.rerun()
-                                else:
-                                    st.error("❌ 파싱 가능한 가격 정보가 없습니다.")
-                            else:
-                                st.warning("⚠️ RAM 섹션을 찾을 수 없습니다. 게시글 전체를 복사했는지 확인해주세요.")
-                        else:
-                            st.warning("⚠️ 가격 정보를 입력해주세요.")
-                
-                with col_btn2:
-                    if st.button("📋 수동 입력"):
-                        if price_input:
-                            parsed_prices = parse_price_data(price_input)
-                            if parsed_prices:
-                                # 선택한 날짜로 저장
-                                selected_date = input_date.strftime('%Y-%m-%d')
-                                
-                                # 히스토리에 저장
-                                history = load_price_history()
-                                if selected_date not in history:
-                                    history[selected_date] = {}
-                                
-                                for category, items in parsed_prices.items():
-                                    history[selected_date][category] = items
-                                
-                                with open(PRICE_HISTORY_FILE, 'w', encoding='utf-8') as f:
-                                    json.dump(history, f, ensure_ascii=False, indent=2)
-                                
-                                # 오늘 날짜면 현재 데이터로도 저장
-                                if selected_date == datetime.now().strftime('%Y-%m-%d'):
-                                    save_price_data(parsed_prices)
-                                
-                                st.success(f"✅ {selected_date} 가격 정보가 저장되었습니다!")
-                                st.rerun()
-                            else:
-                                st.error("❌ 파싱 가능한 가격 정보가 없습니다.")
-                        else:
-                            st.warning("⚠️ 가격 정보를 입력해주세요.")
-                
-                with col_btn3:
-                    if st.button("🗑️ 전체 삭제"):
-                        if os.path.exists(PRICE_DATA_FILE):
-                            os.remove(PRICE_DATA_FILE)
-                        if os.path.exists(PRICE_HISTORY_FILE):
-                            os.remove(PRICE_HISTORY_FILE)
-                        st.success("✅ 모든 데이터가 삭제되었습니다.")
-                        st.rerun()
-                
-                # 히스토리 관리
-                st.markdown("---")
-                st.markdown("##### 📊 저장된 히스토리")
-                history = load_price_history()
-                if history:
-                    dates = sorted(history.keys(), reverse=True)
-                    st.write(f"총 **{len(dates)}일**의 데이터가 저장되어 있습니다.")
-                    
-                    # 날짜 목록 표시
-                    date_df = pd.DataFrame({
-                        '날짜': dates,
-                        '카테고리 수': [len(history[d]) for d in dates],
-                        '총 제품 수': [sum(len(items) for items in history[d].values()) for d in dates]
-                    })
-                    st.dataframe(date_df, hide_index=True, use_container_width=True)
-                    
-                    # 특정 날짜 삭제
-                    st.markdown("##### 🗑️ 특정 날짜 데이터 삭제")
-                    col_del1, col_del2 = st.columns([3, 1])
-                    with col_del1:
-                        date_to_delete = st.selectbox("삭제할 날짜 선택", dates)
-                    with col_del2:
-                        st.write("")  # 간격 조정
-                        if st.button("삭제", key="delete_specific_date"):
-                            del history[date_to_delete]
-                            with open(PRICE_HISTORY_FILE, 'w', encoding='utf-8') as f:
-                                json.dump(history, f, ensure_ascii=False, indent=2)
-                            st.success(f"✅ {date_to_delete} 데이터가 삭제되었습니다.")
-                            st.rerun()
-                else:
-                    st.info("아직 저장된 히스토리가 없습니다.")
-        
-        # 저장된 가격 정보 불러오기
-        current_prices = load_price_data()
-        
-        if current_prices:
-            # 마지막 업데이트 시간 표시
-            if os.path.exists(PRICE_DATA_FILE):
-                update_time = datetime.fromtimestamp(os.path.getmtime(PRICE_DATA_FILE))
-                st.info(f"📅 마지막 업데이트: {update_time.strftime('%Y년 %m월 %d일 %H:%M:%S')}")
-            
-            # 카테고리별로 표시
-            categories_order = [
-                "Intel CPU", "AMD CPU", "그래픽카드", 
-                "DDR5 RAM (데스크탑)", "DDR5 RAM (노트북)",
-                "DDR4 RAM (데스크탑)", "DDR4 RAM (노트북)",
-                "DDR3 RAM (데스크탑)", "DDR3 RAM (노트북)",
-                "메인보드", "SSD", "HDD", "기타"
-            ]
-            
-            # 검색 기능
-            search_query = st.text_input("🔍 제품 검색", placeholder="제품명 입력...")
-            
-            for category in categories_order:
-                if category in current_prices and current_prices[category]:
-                    items = current_prices[category]
-                    
-                    # 검색 필터링
-                    if search_query:
-                        items = [item for item in items if search_query.lower() in item['product'].lower()]
-                    
-                    if items:
-                        with st.expander(f"📦 {category} ({len(items)}개)", expanded=True):
-                            # 데이터프레임으로 변환
-                            df = pd.DataFrame(items)
-                            df = df.sort_values('price', ascending=False)
-                            
-                            # 표 표시
-                            st.dataframe(
-                                df[['product', 'price_formatted']].rename(columns={
-                                    'product': '제품명',
-                                    'price_formatted': '가격'
-                                }),
-                                hide_index=True,
-                                use_container_width=True
-                            )
-                            
-                            # 간단한 통계
-                            col1, col2, col3 = st.columns(3)
-                            with col1:
-                                st.metric("최고가", f"{df['price'].max():,}원")
-                            with col2:
-                                st.metric("최저가", f"{df['price'].min():,}원")
-                            with col3:
-                                st.metric("평균가", f"{int(df['price'].mean()):,}원")
-                            
-                            # 가격 추이 차트 - 제품 선택 방식
-                            st.markdown("##### 📊 개별 제품 가격 추이")
-                            
-                            # 히스토리가 있는 제품만 필터링
-                            products_with_history = []
-                            for idx, row in df.iterrows():
-                                product_name = row['product']
-                                trend_data = get_price_trend(product_name, days)
-                                if trend_data and len(trend_data) >= 2:
-                                    products_with_history.append({
-                                        'name': product_name,
-                                        'current_price': row['price'],
-                                        'trend_data': trend_data
-                                    })
-                            
-                            if products_with_history:
-                                # 제품 선택 드롭다운
-                                product_options = [f"{p['name']} (현재가: {p['current_price']:,}원)" 
-                                                 for p in products_with_history]
-                                
-                                selected_idx = st.selectbox(
-                                    "제품 선택",
-                                    range(len(product_options)),
-                                    format_func=lambda x: product_options[x],
-                                    key=f"product_select_{category}"
-                                )
-                                
-                                # 선택된 제품의 가격 추이 그래프
-                                selected_product = products_with_history[selected_idx]
-                                trend_data = selected_product['trend_data']
-                                
-                                dates = [item['date'] for item in trend_data]
-                                prices = [item['price'] for item in trend_data]
-                                
-                                # 가격 변동 계산
-                                if len(prices) >= 2:
-                                    price_change = prices[-1] - prices[0]
-                                    price_change_pct = (price_change / prices[0]) * 100 if prices[0] != 0 else 0
-                                    
-                                    # 변동 정보 표시
-                                    col_info1, col_info2, col_info3 = st.columns(3)
-                                    with col_info1:
-                                        st.metric("시작가", f"{prices[0]:,}원")
-                                    with col_info2:
-                                        st.metric("현재가", f"{prices[-1]:,}원")
-                                    with col_info3:
-                                        st.metric("변동", f"{price_change:+,}원", f"{price_change_pct:+.2f}%")
-                                
-                                # 그래프 생성
-                                fig = go.Figure()
-                                
-                                # 가격 상승/하락 색상 결정
-                                line_color = '#ff5252' if prices[-1] >= prices[0] else '#00e676'
-                                fill_color = 'rgba(255,82,82,0.1)' if prices[-1] >= prices[0] else 'rgba(0,230,118,0.1)'
-                                
-                                fig.add_trace(go.Scatter(
-                                    x=dates,
-                                    y=prices,
-                                    mode='lines+markers',
-                                    name=selected_product['name'],
-                                    line=dict(color=line_color, width=3),
-                                    marker=dict(size=8, color=line_color),
-                                    fill='tozeroy',
-                                    fillcolor=fill_color,
-                                    hovertemplate='<b>%{x}</b><br>가격: %{y:,}원<extra></extra>'
-                                ))
-                                
-                                fig.update_layout(
-                                    height=350,
-                                    margin=dict(l=0, r=0, t=30, b=0),
-                                    paper_bgcolor='rgba(0,0,0,0)',
-                                    plot_bgcolor='rgba(30,30,30,0.5)',
-                                    xaxis=dict(
-                                        title="날짜",
-                                        gridcolor='rgba(255,255,255,0.1)',
-                                        showgrid=True
-                                    ),
-                                    yaxis=dict(
-                                        title="가격 (원)",
-                                        gridcolor='rgba(255,255,255,0.1)',
-                                        showgrid=True,
-                                        tickformat=','
-                                    ),
-                                    showlegend=False,
-                                    hovermode="x unified"
-                                )
-                                
-                                st.plotly_chart(fig, use_container_width=True)
-                                
-                                # 상세 데이터 테이블
-                                with st.expander("📋 상세 가격 데이터"):
-                                    trend_df = pd.DataFrame(trend_data)
-                                    trend_df['price_formatted'] = trend_df['price'].apply(lambda x: f"{x:,}원")
-                                    
-                                    # 전일 대비 변동 계산
-                                    trend_df['change'] = trend_df['price'].diff()
-                                    trend_df['change_pct'] = (trend_df['price'].pct_change() * 100).round(2)
-                                    trend_df['change_formatted'] = trend_df.apply(
-                                        lambda row: f"{row['change']:+,.0f}원 ({row['change_pct']:+.2f}%)" 
-                                        if pd.notna(row['change']) else "-",
-                                        axis=1
-                                    )
-                                    
-                                    st.dataframe(
-                                        trend_df[['date', 'price_formatted', 'change_formatted']].rename(columns={
-                                            'date': '날짜',
-                                            'price_formatted': '가격',
-                                            'change_formatted': '전일 대비'
-                                        }),
-                                        hide_index=True,
-                                        use_container_width=True
-                                    )
-                            else:
-                                st.info("📈 히스토리 데이터가 충분하지 않습니다. (최소 2일 이상의 데이터 필요)")
-        else:
-            st.warning("⚠️ 아직 등록된 가격 정보가 없습니다.")
-            if st.session_state.admin_authenticated:
-                st.info("💡 위의 '가격 정보 업데이트' 섹션에서 가격을 입력해주세요.")
-            else:
-                st.info("💡 관리자가 가격 정보를 업데이트하면 여기에 표시됩니다.")
