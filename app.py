@@ -7,9 +7,10 @@ import FinanceDataReader as fdr
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 import requests
+import re
 
 # 1. 페이지 설정
-st.set_page_config(page_title="Seondori Market Dashboard", layout="wide", page_icon="📊")
+st.set_page_config(page_title="Seondori.com", layout="wide", page_icon="📊")
 
 # 2. 스타일 설정 (상승=빨강, 하락=초록)
 st.markdown("""
@@ -47,6 +48,64 @@ if "5일" in period_option: p, i = "5d", "30m"
 elif "1개월" in period_option: p, i = "1mo", "1d"
 elif "6개월" in period_option: p, i = "6mo", "1d"
 else: p, i = "1y", "1d"
+
+# ==========================================
+# 🚀 가격 파싱 함수
+# ==========================================
+def parse_price_data(price_text):
+    """
+    텍스트에서 CPU/RAM 가격 정보를 파싱합니다.
+    예: "8-12.i9 10900KF - 170.000원" -> {"name": "i9 10900KF", "price": 170000}
+    """
+    prices = {}
+    
+    # 정규표현식으로 가격 정보 추출
+    # 패턴: 번호. 제품명 - 가격원
+    pattern = r'[\d\-\.]+\s*([A-Za-z0-9\s\-]+?)\s*-\s*([\d,\.]+)\s*원'
+    
+    for line in price_text.split('\n'):
+        match = re.search(pattern, line)
+        if match:
+            product_name = match.group(1).strip()
+            price_str = match.group(2).replace(',', '').replace('.', '')
+            
+            try:
+                price = int(price_str)
+                
+                # 카테고리 분류
+                category = "기타"
+                if 'DDR5' in line or 'D5' in line:
+                    category = "DDR5 RAM"
+                elif 'DDR4' in line or 'D4' in line:
+                    category = "DDR4 RAM"
+                elif 'DDR3' in line or 'D3' in line:
+                    category = "DDR3 RAM"
+                elif any(cpu in line for cpu in ['i3', 'i5', 'i7', 'i9', 'G3', 'G4', 'G5', 'G6']):
+                    if '세대' in line or '레이크' in line or '샌디' in line or '아이비' in line or '하스웰' in line:
+                        category = "Intel CPU"
+                elif 'R3' in line or 'R5' in line or 'R7' in line or 'R9' in line:
+                    category = "AMD CPU"
+                elif 'GTX' in line or 'RTX' in line or 'RX' in line:
+                    category = "그래픽카드"
+                elif 'SSD' in line or 'M.2' in line:
+                    category = "SSD"
+                elif 'HDD' in line or '하드' in line or 'TB' in line or 'TB' in product_name:
+                    category = "HDD"
+                elif any(board in line for board in ['H61', 'H67', 'B75', 'Z77', 'H81', 'B85', 'Z97', 'B150', 'B250', 'B360', 'Z370', 'Z390', 'B460', 'Z490', 'B560', 'Z590', 'B660', 'Z690', 'B760', 'Z790', 'A320', 'B350', 'B450', 'B550', 'B650', 'X670']):
+                    category = "메인보드"
+                
+                if category not in prices:
+                    prices[category] = []
+                
+                prices[category].append({
+                    'product': product_name,
+                    'price': price,
+                    'price_formatted': f"{price:,}원"
+                })
+            except ValueError:
+                continue
+    
+    return prices
 
 # ==========================================
 # 🚀 핵심 기술: 국채 금리 4중 확보 전략 (개선)
@@ -296,8 +355,8 @@ st.title(f"📊 Seondori Market Dashboard ({period_option})")
 if raw_data is None:
     st.error("데이터 서버 연결 중...")
 else:
-    # 탭 생성 (분석 탭 추가)
-    tab1, tab2, tab3, tab4 = st.tabs(["🔍 Trading View", "📈 주가지수 ", "💰 국채 금리", "💱 환율"])
+    # 탭 생성 (가격 정보 탭 추가)
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🔍 Trading View", "📈 주가지수", "💰 국채 금리", "💱 환율", "💻 부품 시세"])
     
     with tab1:
         st.subheader("💡 TradingView 실시간 차트 (RSI 포함)")
@@ -377,10 +436,68 @@ else:
         with c3: draw_card("🇯🇵 원/엔 (100엔)", "JPYKRW=X")
         with c4: draw_card("🌎 달러 인덱스", "DX-Y.NYB")
 
-
-
-
-
-
-
-
+    with tab5:
+        st.subheader("💻 PC 부품 매입 시세")
+        st.info("💡 아래에 가격 정보를 붙여넣으면 자동으로 파싱되어 카테고리별로 정리됩니다.")
+        
+        # 텍스트 입력 영역
+        price_input = st.text_area(
+            "가격 정보 입력 (예: 8-12.i9 10900KF - 170.000원)",
+            height=200,
+            placeholder="여기에 가격 정보를 붙여넣으세요..."
+        )
+        
+        if price_input:
+            # 가격 데이터 파싱
+            parsed_prices = parse_price_data(price_input)
+            
+            if parsed_prices:
+                # 카테고리별로 표시
+                categories_order = [
+                    "Intel CPU", "AMD CPU", "그래픽카드", 
+                    "DDR5 RAM", "DDR4 RAM", "DDR3 RAM",
+                    "메인보드", "SSD", "HDD", "기타"
+                ]
+                
+                for category in categories_order:
+                    if category in parsed_prices and parsed_prices[category]:
+                        with st.expander(f"📦 {category} ({len(parsed_prices[category])}개)", expanded=True):
+                            # 데이터프레임으로 변환
+                            df = pd.DataFrame(parsed_prices[category])
+                            df = df.sort_values('price', ascending=False)
+                            
+                            # 표 표시
+                            st.dataframe(
+                                df[['product', 'price_formatted']].rename(columns={
+                                    'product': '제품명',
+                                    'price_formatted': '가격'
+                                }),
+                                hide_index=True,
+                                use_container_width=True
+                            )
+                            
+                            # 간단한 통계
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                st.metric("최고가", f"{df['price'].max():,}원")
+                            with col2:
+                                st.metric("최저가", f"{df['price'].min():,}원")
+                            with col3:
+                                st.metric("평균가", f"{int(df['price'].mean()):,}원")
+            else:
+                st.warning("가격 정보를 찾을 수 없습니다. 형식을 확인해주세요.")
+        else:
+            # 샘플 데이터 표시
+            st.markdown("""
+            ### 사용 방법
+            1. 위의 텍스트 영역에 가격 정보를 붙여넣으세요
+            2. 자동으로 파싱되어 카테고리별로 정리됩니다
+            3. 각 카테고리를 펼쳐서 상세 정보를 확인하세요
+            
+            #### 입력 형식 예시:
+            ```
+            8-12.i9 10900KF - 170.000원
+            14-1.삼성 16G PC4 25600 [3200mhz] - 138.000원
+            25-14.RTX 2060 - 120.000원
+            ```
+            """)
