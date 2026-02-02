@@ -913,8 +913,7 @@ else:
                     input_date = st.date_input(
                         "날짜",
                         value=datetime.now().date(),
-                        max_value=datetime.now().date(),
-                        help="과거 데이터를 입력하려면 날짜를 선택하세요"
+                        help="원하는 날짜를 선택하세요 (과거/현재/미래 모두 가능)"
                     )
                 
                 with col_date2:
@@ -1028,16 +1027,14 @@ else:
                 st.markdown("---")
                 st.markdown("##### 📊 저장된 히스토리")
                 history = load_price_history()
-                if history:
-                    dates = sorted(history.keys(), reverse=True)
-                    st.write(f"총 **{len(dates)}일**의 데이터가 저장되어 있습니다.")
-                    
-                    # 데이터 백업 다운로드
-                    st.markdown("##### 💾 데이터 백업")
-                    col_backup1, col_backup2 = st.columns(2)
-                    
-                    with col_backup1:
-                        # JSON 파일 다운로드
+                
+                # 데이터 백업/복원 (항상 표시)
+                st.markdown("##### 💾 데이터 백업 / 복원")
+                col_backup1, col_backup2 = st.columns(2)
+                
+                with col_backup1:
+                    # JSON 파일 다운로드
+                    if history:
                         backup_data = {
                             'price_data': load_price_data(),
                             'price_history': history
@@ -1050,34 +1047,41 @@ else:
                             mime="application/json",
                             help="데이터를 안전하게 백업하세요"
                         )
+                    else:
+                        st.info("저장된 데이터가 없습니다")
+                
+                with col_backup2:
+                    # 백업 복원
+                    uploaded_backup = st.file_uploader(
+                        "📤 백업 복원",
+                        type=['json'],
+                        help="이전에 다운로드한 백업 파일을 업로드하세요",
+                        key="backup_restore_uploader"
+                    )
+                    if uploaded_backup is not None:
+                        try:
+                            backup_content = json.loads(uploaded_backup.read().decode('utf-8'))
+                            
+                            if 'price_data' in backup_content:
+                                with open(PRICE_DATA_FILE, 'w', encoding='utf-8') as f:
+                                    json.dump(backup_content['price_data'], f, ensure_ascii=False, indent=2)
+                            
+                            if 'price_history' in backup_content:
+                                with open(PRICE_HISTORY_FILE, 'w', encoding='utf-8') as f:
+                                    json.dump(backup_content['price_history'], f, ensure_ascii=False, indent=2)
+                            
+                            st.success("✅ 백업이 복원되었습니다!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ 백업 복원 실패: {e}")
+                
+                st.markdown("---")
+                
+                # 히스토리 목록
+                if history:
+                    dates = sorted(history.keys(), reverse=True)
+                    st.write(f"총 **{len(dates)}일**의 데이터가 저장되어 있습니다.")
                     
-                    with col_backup2:
-                        # 백업 복원
-                        uploaded_backup = st.file_uploader(
-                            "📤 백업 복원",
-                            type=['json'],
-                            help="이전에 다운로드한 백업 파일을 업로드하세요"
-                        )
-                        if uploaded_backup is not None:
-                            try:
-                                backup_content = json.loads(uploaded_backup.read().decode('utf-8'))
-                                
-                                if 'price_data' in backup_content:
-                                    with open(PRICE_DATA_FILE, 'w', encoding='utf-8') as f:
-                                        json.dump(backup_content['price_data'], f, ensure_ascii=False, indent=2)
-                                
-                                if 'price_history' in backup_content:
-                                    with open(PRICE_HISTORY_FILE, 'w', encoding='utf-8') as f:
-                                        json.dump(backup_content['price_history'], f, ensure_ascii=False, indent=2)
-                                
-                                st.success("✅ 백업이 복원되었습니다!")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"❌ 백업 복원 실패: {e}")
-                    
-                    st.markdown("---")
-                    
-                    # 날짜 목록 표시
                     date_df = pd.DataFrame({
                         '날짜': dates,
                         '카테고리 수': [len(history[d]) for d in dates],
