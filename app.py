@@ -912,8 +912,8 @@ else:
                 with col_date1:
                     input_date = st.date_input(
                         "날짜",
-                        value=datetime.now(),
-                        max_value=datetime.now(),
+                        value=datetime.now().date(),
+                        max_value=datetime.now().date(),
                         help="과거 데이터를 입력하려면 날짜를 선택하세요"
                     )
                 
