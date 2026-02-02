@@ -14,6 +14,9 @@ import os
 # 1. 페이지 설정
 st.set_page_config(page_title="Seondori.com", layout="wide", page_icon="📊")
 
+# 버전 정보
+VERSION = "2.1.0"  # 날짜 표시 개선, 백업/복원 기능 추가
+
 # 2. 스타일 설정 (상승=빨강, 하락=초록)
 st.markdown("""
     <style>
@@ -70,6 +73,10 @@ with st.sidebar:
     if st.button("🔄 새로고침"):
         st.cache_data.clear()
     period_option = st.selectbox("차트 기간", ("5일", "1개월", "6개월", "1년"), index=0)
+    
+    # 버전 정보 표시
+    st.markdown("---")
+    st.caption(f"📌 Version {VERSION}")
     
     # 관리자 인증
     st.markdown("---")
@@ -895,6 +902,9 @@ else:
         
         # 관리자 전용: 가격 업데이트
         if st.session_state.admin_authenticated:
+            # ⚠️ 중요 경고 표시
+            st.error("⚠️ **중요**: Streamlit Cloud는 앱 재시작 시 데이터가 삭제됩니다! 반드시 백업하세요!")
+            
             with st.expander("📝 가격 정보 업데이트 (관리자 전용)", expanded=False):
                 st.markdown("##### 📅 데이터 입력 날짜 선택")
                 
@@ -963,6 +973,10 @@ else:
                                     
                                     total_items = sum(len(items) for items in parsed_prices.values())
                                     st.success(f"✅ {selected_date} 가격 정보가 저장되었습니다! (총 {total_items}개 제품)")
+                                    
+                                    # 즉시 백업 다운로드 권장
+                                    st.warning("🔔 **지금 바로 백업 다운로드를 권장합니다!** (아래 '저장된 히스토리' 섹션)")
+                                    
                                     st.rerun()
                                 else:
                                     st.error("❌ 파싱 가능한 가격 정보가 없습니다.")
@@ -1225,28 +1239,13 @@ else:
                                     # 가격 변동이 없을 경우
                                     y_padding = price_min * 0.05
                                 
-                                # X축 날짜 표시 전략 (데이터 포인트 개수에 따라)
+                                # X축 날짜 표시 전략 (2일에 1번)
                                 num_points = len(dates)
-                                if num_points <= 7:
-                                    # 7일 이하: 모든 날짜 표시
-                                    dtick = None
-                                    tickmode = 'linear'
-                                    tickangle = -45
-                                elif num_points <= 15:
-                                    # 8-15일: 격일 표시
-                                    dtick = 'D2'  # 2일마다
-                                    tickmode = None
-                                    tickangle = -45
-                                elif num_points <= 31:
-                                    # 16-31일: 3일마다 표시 (약 10개 날짜)
-                                    dtick = 'D3'  # 3일마다
-                                    tickmode = None
-                                    tickangle = -45
-                                else:
-                                    # 32일 이상: 일주일마다
-                                    dtick = 'D7'
-                                    tickmode = None
-                                    tickangle = -45
+                                
+                                # 모든 기간에서 2일마다 표시
+                                dtick = 'D2'  # 2일마다
+                                tickmode = None
+                                tickangle = -45
                                 
                                 # 모바일 최적화 레이아웃
                                 fig.update_layout(
