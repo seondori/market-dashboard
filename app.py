@@ -936,6 +936,9 @@ else:
         else:
             days = 365 * 10  # 전체
         
+        # 디버깅: 선택된 기간 확인
+        st.caption(f"🎯 선택됨: '{view_period}' → {days}일로 변환")
+        
         # 히스토리 정보 표시
         history = load_price_history()
         if history:
