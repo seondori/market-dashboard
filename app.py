@@ -207,10 +207,16 @@ def load_price_history():
 def get_price_trend(product_name, days=30):
     """특정 제품의 가격 추이 데이터 반환"""
     history = load_price_history()
-    dates = sorted(history.keys())[-days:]  # 최근 N일
+    
+    # 날짜 범위 계산
+    from datetime import datetime, timedelta
+    cutoff_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+    
+    # cutoff_date 이후의 날짜만 필터링
+    valid_dates = [d for d in sorted(history.keys()) if d >= cutoff_date]
     
     price_trend = []
-    for date in dates:
+    for date in valid_dates:
         for category, items in history[date].items():
             for item in items:
                 if item['product'] == product_name:
