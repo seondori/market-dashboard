@@ -264,6 +264,9 @@ def get_price_trend(product_name, days=30):
     for date in valid_dates:
         date_data = history[date]
         
+        if not isinstance(date_data, dict):
+            continue
+        
         # 시간별 데이터 구조인지 확인
         is_time_based = any(key in ["10:00", "13:00", "18:00"] for key in date_data.keys())
         
@@ -271,9 +274,16 @@ def get_price_trend(product_name, days=30):
             # 시간별 데이터: 각 시간대 처리
             for time in sorted(date_data.keys()):
                 time_prices = date_data[time]
+                
+                if not isinstance(time_prices, dict):
+                    continue
+                
                 for category, items in time_prices.items():
+                    if not isinstance(items, list):
+                        continue
+                    
                     for item in items:
-                        if item['product'] == product_name:
+                        if isinstance(item, dict) and item.get('product') == product_name:
                             price_trend.append({
                                 'date': f"{date} {time}",
                                 'price': item['price']
@@ -282,14 +292,16 @@ def get_price_trend(product_name, days=30):
         else:
             # 기존 데이터 구조 (하위 호환성)
             for category, items in date_data.items():
-                if isinstance(items, list):
-                    for item in items:
-                        if item['product'] == product_name:
-                            price_trend.append({
-                                'date': date,
-                                'price': item['price']
-                            })
-                            break
+                if not isinstance(items, list):
+                    continue
+                
+                for item in items:
+                    if isinstance(item, dict) and item.get('product') == product_name:
+                        price_trend.append({
+                            'date': date,
+                            'price': item['price']
+                        })
+                        break
     
     return price_trend
 
