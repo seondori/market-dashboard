@@ -249,7 +249,7 @@ def load_price_history():
     return {}
 
 def get_price_trend(product_name, days=30):
-    """특정 제품의 가격 추이 데이터 반환 (시간별 데이터 전용)"""
+    """특정 제품의 가격 추이 데이터 반환 (구/신 형식 모두 지원)"""
     history = load_price_history()
     
     if not history:
@@ -271,22 +271,40 @@ def get_price_trend(product_name, days=30):
         if not isinstance(date_data, dict):
             continue
         
-        # 모든 시간대 순회 (10:00, 13:00, 18:00 또는 기타)
-        for time in sorted(date_data.keys()):
-            time_prices = date_data[time]
-            
-            if not isinstance(time_prices, dict):
-                continue
-            
-            # 모든 카테고리에서 제품 찾기
-            for category, items in time_prices.items():
+        # 첫 번째 키로 형식 판단
+        first_key = next(iter(date_data.keys()), None)
+        is_time_based = first_key in ["10:00", "13:00", "18:00"]
+        
+        if is_time_based:
+            # 신 형식 (시간별): 모든 시간대 순회
+            for time in sorted(date_data.keys()):
+                time_prices = date_data[time]
+                
+                if not isinstance(time_prices, dict):
+                    continue
+                
+                # 모든 카테고리에서 제품 찾기
+                for category, items in time_prices.items():
+                    if not isinstance(items, list):
+                        continue
+                    
+                    for item in items:
+                        if isinstance(item, dict) and item.get('product') == product_name:
+                            price_trend.append({
+                                'date': f"{date} {time}",
+                                'price': item['price']
+                            })
+                            break
+        else:
+            # 구 형식 (날짜만): 카테고리 직접 순회
+            for category, items in date_data.items():
                 if not isinstance(items, list):
                     continue
                 
                 for item in items:
                     if isinstance(item, dict) and item.get('product') == product_name:
                         price_trend.append({
-                            'date': f"{date} {time}",
+                            'date': date,
                             'price': item['price']
                         })
                         break
@@ -1193,7 +1211,7 @@ else:
                     dates = sorted(history.keys(), reverse=True)
                     st.write(f"총 **{len(dates)}일**의 데이터가 저장되어 있습니다.")
                     
-                    # 날짜별 정보 계산 (시간별 데이터 전용)
+                    # 날짜별 정보 계산 (구/신 형식 모두 지원)
                     category_counts = []
                     product_counts = []
                     
@@ -1205,19 +1223,32 @@ else:
                             product_counts.append(0)
                             continue
                         
-                        # 모든 시간대의 데이터 합산
-                        all_categories = set()
-                        total_products = 0
+                        # 첫 번째 키로 형식 판단
+                        first_key = next(iter(date_data.keys()), None)
+                        is_time_based = first_key in ["10:00", "13:00", "18:00"]
                         
-                        for time, time_prices in date_data.items():
-                            if isinstance(time_prices, dict):
-                                all_categories.update(time_prices.keys())
-                                for items in time_prices.values():
-                                    if isinstance(items, list):
-                                        total_products += len(items)
-                        
-                        category_counts.append(len(all_categories))
-                        product_counts.append(total_products)
+                        if is_time_based:
+                            # 신 형식: 모든 시간대의 데이터 합산
+                            all_categories = set()
+                            total_products = 0
+                            
+                            for time, time_prices in date_data.items():
+                                if isinstance(time_prices, dict):
+                                    all_categories.update(time_prices.keys())
+                                    for items in time_prices.values():
+                                        if isinstance(items, list):
+                                            total_products += len(items)
+                            
+                            category_counts.append(len(all_categories))
+                            product_counts.append(total_products)
+                        else:
+                            # 구 형식: 카테고리 직접 계산
+                            category_counts.append(len(date_data))
+                            total = 0
+                            for items in date_data.values():
+                                if isinstance(items, list):
+                                    total += len(items)
+                            product_counts.append(total)
                     
                     date_df = pd.DataFrame({
                         '날짜': dates,
@@ -1326,20 +1357,34 @@ else:
                                         if not isinstance(date_data, dict):
                                             continue
                                         
-                                        # 모든 시간대 확인
+                                        # 첫 번째 키로 형식 판단
+                                        first_key = next(iter(date_data.keys()), None)
+                                        is_time_based = first_key in ["10:00", "13:00", "18:00"]
+                                        
                                         found = False
-                                        for time, time_prices in date_data.items():
-                                            if not isinstance(time_prices, dict):
-                                                continue
-                                            for cat, items in time_prices.items():
+                                        if is_time_based:
+                                            # 신 형식: 모든 시간대 확인
+                                            for time, time_prices in date_data.items():
+                                                if not isinstance(time_prices, dict):
+                                                    continue
+                                                for cat, items in time_prices.items():
+                                                    if isinstance(items, list) and any(
+                                                        isinstance(item, dict) and item.get('product') == selected_product_name 
+                                                        for item in items
+                                                    ):
+                                                        found = True
+                                                        break
+                                                if found:
+                                                    break
+                                        else:
+                                            # 구 형식: 카테고리 직접 확인
+                                            for cat, items in date_data.items():
                                                 if isinstance(items, list) and any(
                                                     isinstance(item, dict) and item.get('product') == selected_product_name 
                                                     for item in items
                                                 ):
                                                     found = True
                                                     break
-                                            if found:
-                                                break
                                         
                                         if found:
                                             product_dates.append(date)
