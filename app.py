@@ -228,12 +228,22 @@ def get_price_trend(product_name, days=30):
     """특정 제품의 가격 추이 데이터 반환"""
     history = load_price_history()
     
+    if not history:
+        return []
+    
     # 날짜 범위 계산
     from datetime import datetime, timedelta
     cutoff_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
     
     # cutoff_date 이후의 날짜만 필터링
-    valid_dates = [d for d in sorted(history.keys()) if d >= cutoff_date]
+    all_dates = sorted(history.keys())
+    valid_dates = [d for d in all_dates if d >= cutoff_date]
+    
+    # 디버깅: 첫 호출시 정보 출력
+    import sys
+    if not hasattr(sys, '_debug_printed'):
+        print(f"[DEBUG] 전체 날짜: {len(all_dates)}개, Cutoff: {cutoff_date}, 필터링 후: {len(valid_dates)}개")
+        sys._debug_printed = True
     
     price_trend = []
     for date in valid_dates:
@@ -926,6 +936,15 @@ else:
         else:
             days = 365 * 10  # 전체
         
+        # 히스토리 정보 표시
+        history = load_price_history()
+        if history:
+            total_days = len(history.keys())
+            date_range = f"{min(history.keys())} ~ {max(history.keys())}"
+            st.info(f"📊 저장된 전체 데이터: {total_days}일 ({date_range})")
+        else:
+            st.warning("⚠️ 저장된 데이터가 없습니다. 관리자 로그인 후 데이터를 입력해주세요.")
+        
         # 관리자 전용: 가격 업데이트
         if st.session_state.admin_authenticated:
             # ⚠️ 중요 경고 표시
@@ -1216,102 +1235,109 @@ else:
                             # 가격 추이 차트 - 제품 선택 방식
                             st.markdown("##### 📊 개별 제품 가격 추이")
                             
-                            # 히스토리가 있는 제품만 필터링
-                            products_with_history = []
-                            for idx, row in df.iterrows():
-                                product_name = row['product']
-                                trend_data = get_price_trend(product_name, days)
-                                if trend_data and len(trend_data) >= 2:
-                                    products_with_history.append({
-                                        'name': product_name,
-                                        'current_price': row['price'],
-                                        'trend_data': trend_data
-                                    })
+                            # 제품 리스트 먼저 표시 (빠르게)
+                            product_names = df['product'].tolist()
                             
-                            if products_with_history:
+                            if len(product_names) > 0:
                                 # 제품 선택 드롭다운
-                                product_options = [f"{p['name']} (현재가: {p['current_price']:,}원)" 
-                                                 for p in products_with_history]
-                                
-                                selected_idx = st.selectbox(
+                                selected_product_name = st.selectbox(
                                     "제품 선택",
-                                    range(len(product_options)),
-                                    format_func=lambda x: product_options[x],
+                                    product_names,
                                     key=f"product_select_{category}"
                                 )
                                 
-                                # 선택된 제품의 가격 추이 그래프
-                                selected_product = products_with_history[selected_idx]
-                                trend_data = selected_product['trend_data']
+                                # 선택된 제품의 가격 추이만 조회
+                                trend_data = get_price_trend(selected_product_name, days)
                                 
-                                dates = [item['date'] for item in trend_data]
-                                prices = [item['price'] for item in trend_data]
+                                # 디버깅 정보 표시 (더 자세하게)
+                                history = load_price_history()
+                                total_history_days = len(history.keys()) if history else 0
                                 
-                                # 가격 변동 계산
-                                if len(prices) >= 2:
-                                    price_change = prices[-1] - prices[0]
-                                    price_change_pct = (price_change / prices[0]) * 100 if prices[0] != 0 else 0
+                                # 이 제품이 실제로 몇 개 날짜에 등록되어 있는지 확인
+                                product_dates = []
+                                if history:
+                                    for date in history.keys():
+                                        for cat, items in history[date].items():
+                                            if any(item['product'] == selected_product_name for item in items):
+                                                product_dates.append(date)
+                                                break
+                                
+                                st.caption(f"🔍 전체 히스토리: {total_history_days}일 | 선택 기간: {view_period} ({days}일) | 이 제품 등록 날짜: {len(product_dates)}개 | 조회 결과: {len(trend_data) if trend_data else 0}개")
+                                
+                                if trend_data and len(trend_data) >= 2:
+                                    # 현재 가격 찾기
+                                    current_price = df[df['product'] == selected_product_name]['price'].iloc[0]
                                     
-                                    # 변동 정보 표시
-                                    col_info1, col_info2, col_info3 = st.columns(3)
-                                    with col_info1:
-                                        st.metric("시작가", f"{prices[0]:,}원")
-                                    with col_info2:
-                                        st.metric("현재가", f"{prices[-1]:,}원")
-                                    with col_info3:
-                                        st.metric("변동", f"{price_change:+,}원", f"{price_change_pct:+.2f}%")
-                                
-                                # 그래프 생성 (모바일 최적화 + 등락폭 강조)
-                                fig = go.Figure()
-                                
-                                # 가격 상승/하락 색상 결정
-                                line_color = '#ff5252' if prices[-1] >= prices[0] else '#00e676'
-                                fill_color = 'rgba(255,82,82,0.15)' if prices[-1] >= prices[0] else 'rgba(0,230,118,0.15)'
-                                
-                                fig.add_trace(go.Scatter(
-                                    x=dates,
-                                    y=prices,
-                                    mode='lines+markers',
-                                    name=selected_product['name'],
-                                    line=dict(color=line_color, width=2.5),
-                                    marker=dict(
-                                        size=7, 
-                                        color=line_color,
-                                        line=dict(color='white', width=1)
-                                    ),
-                                    fill='tozeroy',
-                                    fillcolor=fill_color,
-                                    hovertemplate='<b>%{x}</b><br>가격: ₩%{y:,}<extra></extra>'
-                                ))
-                                
-                                # Y축 범위 타이트하게 조정 (등락폭 강조)
-                                price_min = min(prices)
-                                price_max = max(prices)
-                                price_range = price_max - price_min
-                                
-                                # 등락폭이 작을 때는 패딩을 작게, 클 때는 조금만
-                                if price_range > 0:
-                                    # 패딩을 3%로 축소하여 등락폭이 더 크게 보이도록
-                                    y_padding = price_range * 0.03
-                                else:
-                                    # 가격 변동이 없을 경우
-                                    y_padding = price_min * 0.05
-                                
-                                # X축 날짜 표시 전략 (2일에 1번)
-                                num_points = len(dates)
+                                    dates = [item['date'] for item in trend_data]
+                                    prices = [item['price'] for item in trend_data]
+                                    
+                                    # 가격 변동 계산
+                                    if len(prices) >= 2:
+                                        price_change = prices[-1] - prices[0]
+                                        price_change_pct = (price_change / prices[0]) * 100 if prices[0] != 0 else 0
+                                        
+                                        # 변동 정보 표시
+                                        col_info1, col_info2, col_info3 = st.columns(3)
+                                        with col_info1:
+                                            st.metric("시작가", f"{prices[0]:,}원")
+                                        with col_info2:
+                                            st.metric("현재가", f"{prices[-1]:,}원")
+                                        with col_info3:
+                                            st.metric("변동", f"{price_change:+,}원", f"{price_change_pct:+.2f}%")
+                                    # 그래프 생성 (모바일 최적화 + 등락폭 강조)
+                                    fig = go.Figure()
+                                    
+                                    # 가격 상승/하락 색상 결정
+                                    line_color = '#ff5252' if prices[-1] >= prices[0] else '#00e676'
+                                    fill_color = 'rgba(255,82,82,0.15)' if prices[-1] >= prices[0] else 'rgba(0,230,118,0.15)'
+                                    
+                                    fig.add_trace(go.Scatter(
+                                        x=dates,
+                                        y=prices,
+                                        mode='lines+markers',
+                                        name=selected_product_name,
+                                        line=dict(color=line_color, width=2.5),
+                                        marker=dict(
+                                            size=7, 
+                                            color=line_color,
+                                            line=dict(color='white', width=1)
+                                        ),
+                                        fill='tozeroy',
+                                        fillcolor=fill_color,
+                                        hovertemplate='<b>%{x}</b><br>가격: ₩%{y:,}<extra></extra>'
+                                    ))
+                                    
+                                    # Y축 범위 타이트하게 조정 (등락폭 강조)
+                                    price_min = min(prices)
+                                    price_max = max(prices)
+                                    price_range = price_max - price_min
+                                    
+                                    # 등락폭이 작을 때는 패딩을 작게, 클 때는 조금만
+                                    if price_range > 0:
+                                        # 패딩을 3%로 축소하여 등락폭이 더 크게 보이도록
+                                        y_padding = price_range * 0.03
+                                    else:
+                                        # 가격 변동이 없을 경우
+                                        y_padding = price_min * 0.05
+                                    
+                                    # X축 날짜 표시 전략 (2일에 1번)
+                                    num_points = len(dates)
                                 
                                 # 2일마다 표시할 날짜 인덱스 선택
                                 tick_indices = list(range(0, num_points, 2))  # 0, 2, 4, 6...
-                                tick_dates = [dates[i] for i in tick_indices]
+                                if not tick_indices:
+                                    tick_indices = [0]
                                 
-                                # 날짜를 "월/일" 형식으로 변환
-                                from datetime import datetime as dt
+                                tick_dates = [dates[i] for i in tick_indices if i < len(dates)]
+                                
+                                # 날짜를 "월/일" 형식으로 변환 (간단하게)
                                 tick_labels = []
                                 for date_str in tick_dates:
-                                    try:
-                                        date_obj = dt.strptime(date_str, '%Y-%m-%d')
-                                        tick_labels.append(date_obj.strftime('%m/%d'))
-                                    except:
+                                    # "2026-01-30" -> "01/30"
+                                    parts = date_str.split('-')
+                                    if len(parts) >= 3:
+                                        tick_labels.append(f"{parts[1]}/{parts[2]}")
+                                    else:
                                         tick_labels.append(date_str)
                                 
                                 # 모바일 최적화 레이아웃
