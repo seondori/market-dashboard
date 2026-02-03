@@ -176,8 +176,18 @@ def save_price_data(prices):
 def load_price_data():
     """현재 가격 데이터 불러오기"""
     if os.path.exists(PRICE_DATA_FILE):
-        with open(PRICE_DATA_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        try:
+            with open(PRICE_DATA_FILE, 'r', encoding='utf-8') as f:
+                content = f.read().strip()
+                if not content:  # 빈 파일
+                    return {}
+                return json.loads(content)
+        except json.JSONDecodeError:
+            # 파일이 손상된 경우 빈 딕셔너리 반환
+            return {}
+        except Exception as e:
+            print(f"Error loading price data: {e}")
+            return {}
     return {}
 
 def save_price_history(prices):
@@ -200,8 +210,18 @@ def save_price_history(prices):
 def load_price_history():
     """가격 히스토리 불러오기"""
     if os.path.exists(PRICE_HISTORY_FILE):
-        with open(PRICE_HISTORY_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        try:
+            with open(PRICE_HISTORY_FILE, 'r', encoding='utf-8') as f:
+                content = f.read().strip()
+                if not content:  # 빈 파일
+                    return {}
+                return json.loads(content)
+        except json.JSONDecodeError:
+            # 파일이 손상된 경우 빈 딕셔너리 반환
+            return {}
+        except Exception as e:
+            print(f"Error loading price history: {e}")
+            return {}
     return {}
 
 def get_price_trend(product_name, days=30):
@@ -1046,13 +1066,33 @@ else:
                             'price_history': history
                         }
                         backup_json = json.dumps(backup_data, ensure_ascii=False, indent=2)
-                        st.download_button(
-                            label="📥 백업 다운로드 (JSON)",
-                            data=backup_json,
-                            file_name=f"ram_price_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                            mime="application/json",
-                            help="데이터를 안전하게 백업하세요"
-                        )
+                        
+                        # 압축 백업 (gzip)
+                        import gzip
+                        compressed_backup = gzip.compress(backup_json.encode('utf-8'))
+                        
+                        col_b1, col_b2 = st.columns(2)
+                        with col_b1:
+                            st.download_button(
+                                label="📥 백업 (JSON)",
+                                data=backup_json,
+                                file_name=f"ram_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                                mime="application/json",
+                                help="일반 JSON 형식"
+                            )
+                        with col_b2:
+                            st.download_button(
+                                label="📥 백업 (압축)",
+                                data=compressed_backup,
+                                file_name=f"ram_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json.gz",
+                                mime="application/gzip",
+                                help="압축된 백업 (용량 90% 절약)"
+                            )
+                        
+                        # 파일 크기 정보
+                        original_size = len(backup_json.encode('utf-8')) / 1024  # KB
+                        compressed_size = len(compressed_backup) / 1024  # KB
+                        st.caption(f"💾 원본: {original_size:.1f}KB → 압축: {compressed_size:.1f}KB (절약: {100*(1-compressed_size/original_size):.0f}%)")
                     else:
                         st.info("저장된 데이터가 없습니다")
                 
@@ -1060,13 +1100,21 @@ else:
                     # 백업 복원
                     uploaded_backup = st.file_uploader(
                         "📤 백업 복원",
-                        type=['json'],
-                        help="이전에 다운로드한 백업 파일을 업로드하세요",
+                        type=['json', 'gz'],
+                        help="JSON 또는 압축된 백업 파일을 업로드하세요",
                         key="backup_restore_uploader"
                     )
                     if uploaded_backup is not None:
                         try:
-                            backup_content = json.loads(uploaded_backup.read().decode('utf-8'))
+                            # 파일 타입 확인
+                            file_bytes = uploaded_backup.read()
+                            
+                            # .gz 파일이면 압축 해제
+                            if uploaded_backup.name.endswith('.gz'):
+                                import gzip
+                                file_bytes = gzip.decompress(file_bytes)
+                            
+                            backup_content = json.loads(file_bytes.decode('utf-8'))
                             
                             if 'price_data' in backup_content:
                                 with open(PRICE_DATA_FILE, 'w', encoding='utf-8') as f:
@@ -1252,16 +1300,25 @@ else:
                                 # X축 날짜 표시 전략 (2일에 1번)
                                 num_points = len(dates)
                                 
-                                # 모든 기간에서 2일마다 표시
-                                dtick = 'D2'  # 2일마다
-                                tickmode = None
-                                tickangle = -45
+                                # 2일마다 표시할 날짜 인덱스 선택
+                                tick_indices = list(range(0, num_points, 2))  # 0, 2, 4, 6...
+                                tick_dates = [dates[i] for i in tick_indices]
+                                
+                                # 날짜를 "월/일" 형식으로 변환
+                                from datetime import datetime as dt
+                                tick_labels = []
+                                for date_str in tick_dates:
+                                    try:
+                                        date_obj = dt.strptime(date_str, '%Y-%m-%d')
+                                        tick_labels.append(date_obj.strftime('%m/%d'))
+                                    except:
+                                        tick_labels.append(date_str)
                                 
                                 # 모바일 최적화 레이아웃
                                 fig.update_layout(
                                     autosize=True,
-                                    height=280,  # 모바일에 최적화된 높이
-                                    margin=dict(l=15, r=15, t=20, b=50),  # 하단 여백 증가 (날짜 표시)
+                                    height=280,
+                                    margin=dict(l=15, r=15, t=20, b=50),
                                     paper_bgcolor='rgba(0,0,0,0)',
                                     plot_bgcolor='rgba(30,30,30,0.8)',
                                     xaxis=dict(
@@ -1269,10 +1326,10 @@ else:
                                         gridcolor='rgba(255,255,255,0.08)',
                                         showgrid=True,
                                         tickfont=dict(size=8, color='#aaa'),
-                                        tickangle=tickangle,
-                                        tickmode=tickmode,
-                                        dtick=dtick,
-                                        tickformat='%m/%d'  # 월/일 형식
+                                        tickangle=-45,
+                                        tickmode='array',
+                                        tickvals=tick_dates,   # 실제 날짜 값
+                                        ticktext=tick_labels   # 표시할 텍스트 (월/일)
                                     ),
                                     yaxis=dict(
                                         title="",
