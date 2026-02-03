@@ -1213,10 +1213,48 @@ else:
                     dates = sorted(history.keys(), reverse=True)
                     st.write(f"총 **{len(dates)}일**의 데이터가 저장되어 있습니다.")
                     
+                    # 날짜별 정보 계산 (시간별 데이터 고려)
+                    category_counts = []
+                    product_counts = []
+                    
+                    for d in dates:
+                        date_data = history[d]
+                        
+                        if not isinstance(date_data, dict):
+                            category_counts.append(0)
+                            product_counts.append(0)
+                            continue
+                        
+                        # 시간별 데이터 구조인지 확인
+                        is_time_based = any(key in ["10:00", "13:00", "18:00"] for key in date_data.keys())
+                        
+                        if is_time_based:
+                            # 시간별 데이터: 모든 시간대의 데이터 합산
+                            all_categories = set()
+                            total_products = 0
+                            
+                            for time, time_prices in date_data.items():
+                                if isinstance(time_prices, dict):
+                                    all_categories.update(time_prices.keys())
+                                    for items in time_prices.values():
+                                        if isinstance(items, list):
+                                            total_products += len(items)
+                            
+                            category_counts.append(len(all_categories))
+                            product_counts.append(total_products)
+                        else:
+                            # 기존 데이터 구조
+                            category_counts.append(len(date_data))
+                            total = 0
+                            for items in date_data.values():
+                                if isinstance(items, list):
+                                    total += len(items)
+                            product_counts.append(total)
+                    
                     date_df = pd.DataFrame({
                         '날짜': dates,
-                        '카테고리 수': [len(history[d]) for d in dates],
-                        '총 제품 수': [sum(len(items) for items in history[d].values()) for d in dates]
+                        '카테고리 수': category_counts,
+                        '총 제품 수': product_counts
                     })
                     st.dataframe(date_df, hide_index=True, use_container_width=True)
                     
@@ -1315,10 +1353,41 @@ else:
                                 product_dates = []
                                 if history:
                                     for date in history.keys():
-                                        for cat, items in history[date].items():
-                                            if any(item['product'] == selected_product_name for item in items):
-                                                product_dates.append(date)
-                                                break
+                                        date_data = history[date]
+                                        
+                                        if not isinstance(date_data, dict):
+                                            continue
+                                        
+                                        # 시간별 데이터 구조인지 확인
+                                        is_time_based = any(key in ["10:00", "13:00", "18:00"] for key in date_data.keys())
+                                        
+                                        found = False
+                                        if is_time_based:
+                                            # 시간별 데이터: 모든 시간대 확인
+                                            for time, time_prices in date_data.items():
+                                                if not isinstance(time_prices, dict):
+                                                    continue
+                                                for cat, items in time_prices.items():
+                                                    if isinstance(items, list) and any(
+                                                        isinstance(item, dict) and item.get('product') == selected_product_name 
+                                                        for item in items
+                                                    ):
+                                                        found = True
+                                                        break
+                                                if found:
+                                                    break
+                                        else:
+                                            # 기존 데이터 구조
+                                            for cat, items in date_data.items():
+                                                if isinstance(items, list) and any(
+                                                    isinstance(item, dict) and item.get('product') == selected_product_name 
+                                                    for item in items
+                                                ):
+                                                    found = True
+                                                    break
+                                        
+                                        if found:
+                                            product_dates.append(date)
                                 
                                 st.caption(f"🔍 전체 히스토리: {total_history_days}일 | 선택 기간: {view_period} ({days}일) | 이 제품 등록 날짜: {len(product_dates)}개 | 조회 결과: {len(trend_data) if trend_data else 0}개")
                                 
