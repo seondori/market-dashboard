@@ -924,11 +924,11 @@ else:
                 key="ram_period"
             )
         
-        # 기간에 따른 일수 계산
-        if "5일" in view_period:
-            days = 5
-        elif "15일" in view_period:
+        # 기간에 따른 일수 계산 (긴 것부터 체크!)
+        if "15일" in view_period:
             days = 15
+        elif "5일" in view_period:
+            days = 5
         elif "1개월" in view_period:
             days = 30
         elif "6개월" in view_period:
