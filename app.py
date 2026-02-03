@@ -193,12 +193,12 @@ def load_price_data():
 
 def save_price_history(prices, selected_date=None, selected_time=None):
     """
-    가격 히스토리 저장 (날짜별 + 시간별)
+    가격 히스토리 저장 (시간별)
     
     Args:
         prices: 가격 데이터
         selected_date: "2026-02-03" (None이면 오늘)
-        selected_time: "10:00", "13:00", "18:00" (None이면 저장 안 함)
+        selected_time: "10:00", "13:00", "18:00" (필수!)
     """
     history = load_price_history()
     
@@ -212,16 +212,20 @@ def save_price_history(prices, selected_date=None, selected_time=None):
     if date_key not in history:
         history[date_key] = {}
     
-    # 시간별 저장 구조 사용
+    # 시간별로 저장 (필수)
     if selected_time:
-        # 시간이 지정된 경우: 시간별로 저장
         history[date_key][selected_time] = prices
     else:
-        # 시간이 없는 경우: 기존 방식 (하위 호환성)
-        for category, items in prices.items():
-            if category not in history[date_key]:
-                history[date_key][category] = []
-            history[date_key][category] = items
+        # 시간 없으면 경고하고 현재 시간 사용
+        current_hour = datetime.now().hour
+        if current_hour < 12:
+            selected_time = "10:00"
+        elif current_hour < 16:
+            selected_time = "13:00"
+        else:
+            selected_time = "18:00"
+        history[date_key][selected_time] = prices
+        print(f"⚠️ 시간 미지정, 자동으로 {selected_time}로 저장")
     
     with open(PRICE_HISTORY_FILE, 'w', encoding='utf-8') as f:
         json.dump(history, f, ensure_ascii=False, indent=2)
@@ -245,7 +249,7 @@ def load_price_history():
     return {}
 
 def get_price_trend(product_name, days=30):
-    """특정 제품의 가격 추이 데이터 반환 (시간별 데이터 지원)"""
+    """특정 제품의 가격 추이 데이터 반환 (시간별 데이터 전용)"""
     history = load_price_history()
     
     if not history:
@@ -267,38 +271,22 @@ def get_price_trend(product_name, days=30):
         if not isinstance(date_data, dict):
             continue
         
-        # 시간별 데이터 구조인지 확인
-        is_time_based = any(key in ["10:00", "13:00", "18:00"] for key in date_data.keys())
-        
-        if is_time_based:
-            # 시간별 데이터: 각 시간대 처리
-            for time in sorted(date_data.keys()):
-                time_prices = date_data[time]
-                
-                if not isinstance(time_prices, dict):
-                    continue
-                
-                for category, items in time_prices.items():
-                    if not isinstance(items, list):
-                        continue
-                    
-                    for item in items:
-                        if isinstance(item, dict) and item.get('product') == product_name:
-                            price_trend.append({
-                                'date': f"{date} {time}",
-                                'price': item['price']
-                            })
-                            break
-        else:
-            # 기존 데이터 구조 (하위 호환성)
-            for category, items in date_data.items():
+        # 모든 시간대 순회 (10:00, 13:00, 18:00 또는 기타)
+        for time in sorted(date_data.keys()):
+            time_prices = date_data[time]
+            
+            if not isinstance(time_prices, dict):
+                continue
+            
+            # 모든 카테고리에서 제품 찾기
+            for category, items in time_prices.items():
                 if not isinstance(items, list):
                     continue
                 
                 for item in items:
                     if isinstance(item, dict) and item.get('product') == product_name:
                         price_trend.append({
-                            'date': date,
+                            'date': f"{date} {time}",
                             'price': item['price']
                         })
                         break
@@ -1008,22 +996,19 @@ else:
                     input_date = st.date_input(
                         "날짜",
                         value=datetime.now().date(),
-                        help="원하는 날짜를 선택하세요 (과거/현재/미래 모두 가능)"
+                        help="원하는 날짜를 선택하세요"
                     )
                 
                 with col_date2:
                     input_time = st.selectbox(
-                        "시간",
-                        ["선택 안 함", "10:00", "13:00", "18:00"],
-                        help="하루 3회 업데이트 시간 (선택 안 함 = 기존 방식)"
+                        "시간 (필수)",
+                        ["10:00", "13:00", "18:00"],
+                        help="하루 3회 업데이트 시간"
                     )
                 
                 with col_date3:
                     selected_date_str = input_date.strftime('%Y-%m-%d')
-                    if input_time != "선택 안 함":
-                        st.metric("입력 일시", f"{selected_date_str} {input_time}")
-                    else:
-                        st.metric("입력 날짜", selected_date_str)
+                    st.metric("입력 일시", f"{selected_date_str}\n{input_time}")
                 
                 st.markdown("##### 💡 입력 방법")
                 st.info("""
@@ -1058,23 +1043,18 @@ else:
                                 # 파싱 시도
                                 parsed_prices = parse_price_data(extracted_text)
                                 if parsed_prices:
-                                    # 선택한 날짜로 저장
+                                    # 선택한 날짜 및 시간으로 저장
                                     selected_date = input_date.strftime('%Y-%m-%d')
-                                    selected_time_value = None if input_time == "선택 안 함" else input_time
                                     
-                                    # 시간별 저장 또는 기존 방식
-                                    save_price_history(parsed_prices, selected_date, selected_time_value)
+                                    # 무조건 시간과 함께 저장
+                                    save_price_history(parsed_prices, selected_date, input_time)
                                     
                                     # 오늘 날짜면 현재 데이터로도 저장
                                     if selected_date == datetime.now().strftime('%Y-%m-%d'):
                                         save_price_data(parsed_prices)
                                     
                                     total_items = sum(len(items) for items in parsed_prices.values())
-                                    
-                                    if selected_time_value:
-                                        st.success(f"✅ {selected_date} {selected_time_value} 가격 정보가 저장되었습니다! (총 {total_items}개 제품)")
-                                    else:
-                                        st.success(f"✅ {selected_date} 가격 정보가 저장되었습니다! (총 {total_items}개 제품)")
+                                    st.success(f"✅ {selected_date} {input_time} 가격 정보가 저장되었습니다! (총 {total_items}개 제품)")
                                     
                                     # 즉시 백업 다운로드 권장
                                     st.warning("🔔 **지금 바로 백업 다운로드를 권장합니다!** (아래 '저장된 히스토리' 섹션)")
@@ -1213,7 +1193,7 @@ else:
                     dates = sorted(history.keys(), reverse=True)
                     st.write(f"총 **{len(dates)}일**의 데이터가 저장되어 있습니다.")
                     
-                    # 날짜별 정보 계산 (시간별 데이터 고려)
+                    # 날짜별 정보 계산 (시간별 데이터 전용)
                     category_counts = []
                     product_counts = []
                     
@@ -1225,31 +1205,19 @@ else:
                             product_counts.append(0)
                             continue
                         
-                        # 시간별 데이터 구조인지 확인
-                        is_time_based = any(key in ["10:00", "13:00", "18:00"] for key in date_data.keys())
+                        # 모든 시간대의 데이터 합산
+                        all_categories = set()
+                        total_products = 0
                         
-                        if is_time_based:
-                            # 시간별 데이터: 모든 시간대의 데이터 합산
-                            all_categories = set()
-                            total_products = 0
-                            
-                            for time, time_prices in date_data.items():
-                                if isinstance(time_prices, dict):
-                                    all_categories.update(time_prices.keys())
-                                    for items in time_prices.values():
-                                        if isinstance(items, list):
-                                            total_products += len(items)
-                            
-                            category_counts.append(len(all_categories))
-                            product_counts.append(total_products)
-                        else:
-                            # 기존 데이터 구조
-                            category_counts.append(len(date_data))
-                            total = 0
-                            for items in date_data.values():
-                                if isinstance(items, list):
-                                    total += len(items)
-                            product_counts.append(total)
+                        for time, time_prices in date_data.items():
+                            if isinstance(time_prices, dict):
+                                all_categories.update(time_prices.keys())
+                                for items in time_prices.values():
+                                    if isinstance(items, list):
+                                        total_products += len(items)
+                        
+                        category_counts.append(len(all_categories))
+                        product_counts.append(total_products)
                     
                     date_df = pd.DataFrame({
                         '날짜': dates,
@@ -1358,33 +1326,20 @@ else:
                                         if not isinstance(date_data, dict):
                                             continue
                                         
-                                        # 시간별 데이터 구조인지 확인
-                                        is_time_based = any(key in ["10:00", "13:00", "18:00"] for key in date_data.keys())
-                                        
+                                        # 모든 시간대 확인
                                         found = False
-                                        if is_time_based:
-                                            # 시간별 데이터: 모든 시간대 확인
-                                            for time, time_prices in date_data.items():
-                                                if not isinstance(time_prices, dict):
-                                                    continue
-                                                for cat, items in time_prices.items():
-                                                    if isinstance(items, list) and any(
-                                                        isinstance(item, dict) and item.get('product') == selected_product_name 
-                                                        for item in items
-                                                    ):
-                                                        found = True
-                                                        break
-                                                if found:
-                                                    break
-                                        else:
-                                            # 기존 데이터 구조
-                                            for cat, items in date_data.items():
+                                        for time, time_prices in date_data.items():
+                                            if not isinstance(time_prices, dict):
+                                                continue
+                                            for cat, items in time_prices.items():
                                                 if isinstance(items, list) and any(
                                                     isinstance(item, dict) and item.get('product') == selected_product_name 
                                                     for item in items
                                                 ):
                                                     found = True
                                                     break
+                                            if found:
+                                                break
                                         
                                         if found:
                                             product_dates.append(date)
@@ -1449,53 +1404,65 @@ else:
                                     
                                     # X축 날짜 표시 전략 (2일에 1번)
                                     num_points = len(dates)
-                                
-                                # 2일마다 표시할 날짜 인덱스 선택
-                                tick_indices = list(range(0, num_points, 2))  # 0, 2, 4, 6...
-                                if not tick_indices:
-                                    tick_indices = [0]
-                                
-                                tick_dates = [dates[i] for i in tick_indices if i < len(dates)]
-                                
-                                # 날짜를 "월/일" 형식으로 변환 (간단하게)
-                                tick_labels = []
-                                for date_str in tick_dates:
-                                    # "2026-01-30" -> "01/30"
-                                    parts = date_str.split('-')
-                                    if len(parts) >= 3:
-                                        tick_labels.append(f"{parts[1]}/{parts[2]}")
+                                    
+                                    if num_points == 0:
+                                        st.warning("표시할 데이터가 없습니다")
                                     else:
-                                        tick_labels.append(date_str)
-                                
-                                # 모바일 최적화 레이아웃
-                                fig.update_layout(
-                                    autosize=True,
-                                    height=280,
-                                    margin=dict(l=15, r=15, t=20, b=50),
-                                    paper_bgcolor='rgba(0,0,0,0)',
-                                    plot_bgcolor='rgba(30,30,30,0.8)',
-                                    xaxis=dict(
-                                        title="",
-                                        gridcolor='rgba(255,255,255,0.08)',
-                                        showgrid=True,
-                                        tickfont=dict(size=8, color='#aaa'),
-                                        tickangle=-45,
-                                        tickmode='array',
-                                        tickvals=tick_dates,   # 실제 날짜 값
-                                        ticktext=tick_labels   # 표시할 텍스트 (월/일)
-                                    ),
-                                    yaxis=dict(
-                                        title="",
-                                        gridcolor='rgba(255,255,255,0.08)',
-                                        showgrid=True,
-                                        tickformat=',.0f',
-                                        tickprefix='₩',
-                                        tickfont=dict(size=9, color='#aaa'),
-                                        range=[price_min - y_padding, price_max + y_padding],
-                                        fixedrange=False
-                                    ),
-                                    showlegend=False,
-                                    hovermode="x unified",
+                                        # 2일마다 표시할 날짜 인덱스 선택
+                                        tick_indices = list(range(0, num_points, 2))  # 0, 2, 4, 6...
+                                        if not tick_indices:
+                                            tick_indices = [0]
+                                        
+                                        tick_dates = [dates[i] for i in tick_indices if i < len(dates)]
+                                        
+                                        # 날짜를 "월/일" 형식으로 변환 (간단하게)
+                                        tick_labels = []
+                                        for date_str in tick_dates:
+                                            # "2026-01-30" -> "01/30"
+                                            # 시간이 포함된 경우: "2026-01-30 13:00" -> "01/30 13:00"
+                                            if ' ' in date_str:
+                                                date_part, time_part = date_str.split(' ', 1)
+                                                parts = date_part.split('-')
+                                                if len(parts) >= 3:
+                                                    tick_labels.append(f"{parts[1]}/{parts[2]} {time_part}")
+                                                else:
+                                                    tick_labels.append(date_str)
+                                            else:
+                                                parts = date_str.split('-')
+                                                if len(parts) >= 3:
+                                                    tick_labels.append(f"{parts[1]}/{parts[2]}")
+                                                else:
+                                                    tick_labels.append(date_str)
+                                        
+                                        # 모바일 최적화 레이아웃
+                                        fig.update_layout(
+                                            autosize=True,
+                                            height=280,
+                                            margin=dict(l=15, r=15, t=20, b=50),
+                                            paper_bgcolor='rgba(0,0,0,0)',
+                                            plot_bgcolor='rgba(30,30,30,0.8)',
+                                            xaxis=dict(
+                                                title="",
+                                                gridcolor='rgba(255,255,255,0.08)',
+                                                showgrid=True,
+                                                tickfont=dict(size=8, color='#aaa'),
+                                                tickangle=-45,
+                                                tickmode='array',
+                                                tickvals=tick_dates,   # 실제 날짜 값
+                                                ticktext=tick_labels   # 표시할 텍스트 (월/일)
+                                            ),
+                                            yaxis=dict(
+                                                title="",
+                                                gridcolor='rgba(255,255,255,0.08)',
+                                                showgrid=True,
+                                                tickformat=',.0f',
+                                                tickprefix='₩',
+                                                tickfont=dict(size=9, color='#aaa'),
+                                                range=[price_min - y_padding, price_max + y_padding],
+                                                fixedrange=False
+                                            ),
+                                            showlegend=False,
+                                            hovermode="x unified",
                                     font=dict(size=10, color='#fff'),
                                     hoverlabel=dict(
                                         bgcolor='rgba(30,30,30,0.95)',
