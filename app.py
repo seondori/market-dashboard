@@ -173,6 +173,7 @@ def save_price_data(prices):
     with open(PRICE_DATA_FILE, 'w', encoding='utf-8') as f:
         json.dump(prices, f, ensure_ascii=False, indent=2)
 
+@st.cache_data(ttl=60)  # 60초 동안 캐싱
 def load_price_data():
     """현재 가격 데이터 불러오기"""
     if os.path.exists(PRICE_DATA_FILE):
@@ -190,23 +191,42 @@ def load_price_data():
             return {}
     return {}
 
-def save_price_history(prices):
-    """가격 히스토리 저장 (날짜별)"""
+def save_price_history(prices, selected_date=None, selected_time=None):
+    """
+    가격 히스토리 저장 (날짜별 + 시간별)
+    
+    Args:
+        prices: 가격 데이터
+        selected_date: "2026-02-03" (None이면 오늘)
+        selected_time: "10:00", "13:00", "18:00" (None이면 저장 안 함)
+    """
     history = load_price_history()
-    today = datetime.now().strftime('%Y-%m-%d')
     
-    # 오늘 날짜로 데이터 추가
-    if today not in history:
-        history[today] = {}
+    # 날짜 설정
+    if selected_date is None:
+        date_key = datetime.now().strftime('%Y-%m-%d')
+    else:
+        date_key = selected_date
     
-    for category, items in prices.items():
-        if category not in history[today]:
-            history[today][category] = []
-        history[today][category] = items
+    # 날짜가 없으면 생성
+    if date_key not in history:
+        history[date_key] = {}
+    
+    # 시간별 저장 구조 사용
+    if selected_time:
+        # 시간이 지정된 경우: 시간별로 저장
+        history[date_key][selected_time] = prices
+    else:
+        # 시간이 없는 경우: 기존 방식 (하위 호환성)
+        for category, items in prices.items():
+            if category not in history[date_key]:
+                history[date_key][category] = []
+            history[date_key][category] = items
     
     with open(PRICE_HISTORY_FILE, 'w', encoding='utf-8') as f:
         json.dump(history, f, ensure_ascii=False, indent=2)
 
+@st.cache_data(ttl=60)  # 60초 동안 캐싱
 def load_price_history():
     """가격 히스토리 불러오기"""
     if os.path.exists(PRICE_HISTORY_FILE):
@@ -225,7 +245,7 @@ def load_price_history():
     return {}
 
 def get_price_trend(product_name, days=30):
-    """특정 제품의 가격 추이 데이터 반환"""
+    """특정 제품의 가격 추이 데이터 반환 (시간별 데이터 지원)"""
     history = load_price_history()
     
     if not history:
@@ -239,22 +259,37 @@ def get_price_trend(product_name, days=30):
     all_dates = sorted(history.keys())
     valid_dates = [d for d in all_dates if d >= cutoff_date]
     
-    # 디버깅: 첫 호출시 정보 출력
-    import sys
-    if not hasattr(sys, '_debug_printed'):
-        print(f"[DEBUG] 전체 날짜: {len(all_dates)}개, Cutoff: {cutoff_date}, 필터링 후: {len(valid_dates)}개")
-        sys._debug_printed = True
-    
     price_trend = []
+    
     for date in valid_dates:
-        for category, items in history[date].items():
-            for item in items:
-                if item['product'] == product_name:
-                    price_trend.append({
-                        'date': date,
-                        'price': item['price']
-                    })
-                    break
+        date_data = history[date]
+        
+        # 시간별 데이터 구조인지 확인
+        is_time_based = any(key in ["10:00", "13:00", "18:00"] for key in date_data.keys())
+        
+        if is_time_based:
+            # 시간별 데이터: 각 시간대 처리
+            for time in sorted(date_data.keys()):
+                time_prices = date_data[time]
+                for category, items in time_prices.items():
+                    for item in items:
+                        if item['product'] == product_name:
+                            price_trend.append({
+                                'date': f"{date} {time}",
+                                'price': item['price']
+                            })
+                            break
+        else:
+            # 기존 데이터 구조 (하위 호환성)
+            for category, items in date_data.items():
+                if isinstance(items, list):
+                    for item in items:
+                        if item['product'] == product_name:
+                            price_trend.append({
+                                'date': date,
+                                'price': item['price']
+                            })
+                            break
     
     return price_trend
 
@@ -954,9 +989,9 @@ else:
             st.error("⚠️ **중요**: Streamlit Cloud는 앱 재시작 시 데이터가 삭제됩니다! 반드시 백업하세요!")
             
             with st.expander("📝 가격 정보 업데이트 (관리자 전용)", expanded=False):
-                st.markdown("##### 📅 데이터 입력 날짜 선택")
+                st.markdown("##### 📅 데이터 입력 날짜 및 시간 선택")
                 
-                col_date1, col_date2 = st.columns(2)
+                col_date1, col_date2, col_date3 = st.columns(3)
                 with col_date1:
                     input_date = st.date_input(
                         "날짜",
@@ -965,7 +1000,18 @@ else:
                     )
                 
                 with col_date2:
-                    st.info(f"선택된 날짜: **{input_date.strftime('%Y년 %m월 %d일')}**")
+                    input_time = st.selectbox(
+                        "시간",
+                        ["선택 안 함", "10:00", "13:00", "18:00"],
+                        help="하루 3회 업데이트 시간 (선택 안 함 = 기존 방식)"
+                    )
+                
+                with col_date3:
+                    selected_date_str = input_date.strftime('%Y-%m-%d')
+                    if input_time != "선택 안 함":
+                        st.metric("입력 일시", f"{selected_date_str} {input_time}")
+                    else:
+                        st.metric("입력 날짜", selected_date_str)
                 
                 st.markdown("##### 💡 입력 방법")
                 st.info("""
@@ -1002,24 +1048,21 @@ else:
                                 if parsed_prices:
                                     # 선택한 날짜로 저장
                                     selected_date = input_date.strftime('%Y-%m-%d')
+                                    selected_time_value = None if input_time == "선택 안 함" else input_time
                                     
-                                    # 히스토리에 저장
-                                    history = load_price_history()
-                                    if selected_date not in history:
-                                        history[selected_date] = {}
-                                    
-                                    for category, items in parsed_prices.items():
-                                        history[selected_date][category] = items
-                                    
-                                    with open(PRICE_HISTORY_FILE, 'w', encoding='utf-8') as f:
-                                        json.dump(history, f, ensure_ascii=False, indent=2)
+                                    # 시간별 저장 또는 기존 방식
+                                    save_price_history(parsed_prices, selected_date, selected_time_value)
                                     
                                     # 오늘 날짜면 현재 데이터로도 저장
                                     if selected_date == datetime.now().strftime('%Y-%m-%d'):
                                         save_price_data(parsed_prices)
                                     
                                     total_items = sum(len(items) for items in parsed_prices.values())
-                                    st.success(f"✅ {selected_date} 가격 정보가 저장되었습니다! (총 {total_items}개 제품)")
+                                    
+                                    if selected_time_value:
+                                        st.success(f"✅ {selected_date} {selected_time_value} 가격 정보가 저장되었습니다! (총 {total_items}개 제품)")
+                                    else:
+                                        st.success(f"✅ {selected_date} 가격 정보가 저장되었습니다! (총 {total_items}개 제품)")
                                     
                                     # 즉시 백업 다운로드 권장
                                     st.warning("🔔 **지금 바로 백업 다운로드를 권장합니다!** (아래 '저장된 히스토리' 섹션)")
